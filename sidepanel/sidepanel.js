@@ -72,6 +72,14 @@ const textSizeStat = document.getElementById('textSizeStat');
 const imageSizeStat = document.getElementById('imageSizeStat');
 const editTitle = document.getElementById('editTitle');
 const editUrl = document.getElementById('editUrl');
+const screenshotSection = document.getElementById('screenshotSection');
+const screenshotBadge = document.getElementById('screenshotBadge');
+const screenshotContainer = document.getElementById('screenshotContainer');
+const screenshotPlaceholder = document.getElementById('screenshotPlaceholder');
+const screenshotThumb = document.getElementById('screenshotThumb');
+const screenshotModal = document.getElementById('screenshotModal');
+const screenshotModalClose = document.getElementById('screenshotModalClose');
+const screenshotModalImg = document.getElementById('screenshotModalImg');
 const textPreview = document.getElementById('textPreview');
 const textCharCount = document.getElementById('textCharCount');
 const textToggle = document.getElementById('textToggle');
@@ -81,6 +89,7 @@ const metadataSection = document.getElementById('metadataSection');
 const metadataList = document.getElementById('metadataList');
 const includeHtml = document.getElementById('includeHtml');
 const includeImages = document.getElementById('includeImages');
+const includeScreenshot = document.getElementById('includeScreenshot');
 const moveBundleSelect = document.getElementById('moveBundleSelect');
 const copyBtn = document.getElementById('copyBtn');
 const removeBtn = document.getElementById('removeBtn');
@@ -476,11 +485,11 @@ function createAccordionPageItem(bundleId, capture, index) {
   dragHandle.className = 'accordion-page-drag';
   dragHandle.innerHTML = '&#8942;&#8942;'; // ⋮⋮
 
-  // Thumbnail
+  // Thumbnail - prefer screenshot, then first image, then icon
   const thumb = document.createElement('div');
   thumb.className = 'accordion-page-thumb';
 
-  const thumbUrl = capture.images?.[0] || capture.selectedImages?.[0];
+  const thumbUrl = capture.screenshot || capture.images?.[0] || capture.selectedImages?.[0];
   if (thumbUrl) {
     const img = document.createElement('img');
     img.src = thumbUrl;
@@ -629,6 +638,7 @@ function viewPageDetail(index) {
   // Restore toggle states
   includeHtml.checked = capture.includeHtml !== false;
   includeImages.checked = capture.includeImages !== false;
+  includeScreenshot.checked = capture.includeScreenshot !== false;
 
   // Reset text expansion
   textExpanded = false;
@@ -675,6 +685,9 @@ function renderDetailPreview(capture) {
   editTitle.value = capture.editedTitle || capture.title || '';
   editUrl.value = capture.editedUrl || capture.url || '';
 
+  // Screenshot
+  renderScreenshot(capture);
+
   // Text preview
   const fullText = capture.text || '';
   const previewText = fullText.substring(0, 500);
@@ -688,6 +701,41 @@ function renderDetailPreview(capture) {
 
   // Metadata
   renderMetadata(capture);
+}
+
+/**
+ * Render screenshot section
+ */
+function renderScreenshot(capture) {
+  if (capture.screenshot) {
+    // Calculate approximate size of base64 data
+    const screenshotSize = Math.round((capture.screenshot.length * 3) / 4); // Base64 to bytes
+    screenshotBadge.textContent = formatBytes(screenshotSize);
+
+    screenshotThumb.src = capture.screenshot;
+    screenshotThumb.style.display = 'block';
+    screenshotPlaceholder.style.display = 'none';
+  } else {
+    screenshotBadge.textContent = 'N/A';
+    screenshotThumb.style.display = 'none';
+    screenshotPlaceholder.style.display = 'block';
+  }
+}
+
+/**
+ * Open screenshot modal
+ */
+function openScreenshotModal(screenshotSrc) {
+  screenshotModalImg.src = screenshotSrc;
+  screenshotModal.classList.add('visible');
+}
+
+/**
+ * Close screenshot modal
+ */
+function closeScreenshotModal() {
+  screenshotModal.classList.remove('visible');
+  screenshotModalImg.src = '';
 }
 
 /**
@@ -817,6 +865,7 @@ function saveCurrentDetail() {
     editedUrl: editUrl.value,
     includeHtml: includeHtml.checked,
     includeImages: includeImages.checked,
+    includeScreenshot: includeScreenshot.checked,
   };
 
   saveToStorage();
@@ -841,6 +890,10 @@ function buildExportData(capture) {
   const images = capture.selectedImages || capture.images || [];
   if (capture.includeImages !== false && images.length > 0) {
     exportData.images = images;
+  }
+
+  if (capture.includeScreenshot !== false && capture.screenshot) {
+    exportData.screenshot = capture.screenshot;
   }
 
   return exportData;
@@ -1015,6 +1068,7 @@ async function addCaptureToBundle(bundleId, capture, replaceIndex = -1) {
     selectedImages: capture.images || [],
     includeHtml: true,
     includeImages: true,
+    includeScreenshot: true,
   };
 
   if (replaceIndex >= 0 && replaceIndex < bundle.pages.length) {
@@ -1052,6 +1106,28 @@ function isConnectionError(error) {
 }
 
 /**
+ * Capture screenshot via background service worker
+ */
+async function captureScreenshot(windowId) {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      action: 'captureScreenshot',
+      windowId: windowId,
+    });
+
+    if (response.error) {
+      console.warn('[EventAtlas Capture] Screenshot capture failed:', response.error);
+      return null;
+    }
+
+    return response.screenshot;
+  } catch (error) {
+    console.warn('[EventAtlas Capture] Screenshot capture failed:', error);
+    return null;
+  }
+}
+
+/**
  * Capture page content
  */
 async function capturePage() {
@@ -1072,8 +1148,17 @@ async function capturePage() {
       throw new Error('Cannot capture Chrome system pages');
     }
 
-    // Send message to content script
+    // Send message to content script for page content
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'capture' });
+
+    // Capture screenshot (runs in parallel conceptually, but after content capture)
+    // Screenshot may fail for some pages (e.g., chrome:// pages) but that's OK
+    const screenshot = await captureScreenshot(tab.windowId);
+
+    // Add screenshot to response if captured
+    if (screenshot) {
+      response.screenshot = screenshot;
+    }
 
     if (response.error) {
       throw new Error(response.error);
@@ -1283,6 +1368,34 @@ editTitle.addEventListener('change', saveCurrentDetail);
 editUrl.addEventListener('change', saveCurrentDetail);
 includeHtml.addEventListener('change', saveCurrentDetail);
 includeImages.addEventListener('change', saveCurrentDetail);
+includeScreenshot.addEventListener('change', saveCurrentDetail);
+
+// Screenshot modal events
+screenshotThumb.addEventListener('click', () => {
+  const bundle = getCurrentBundle();
+  if (bundle && currentPageIndex !== null && currentPageIndex < bundle.pages.length) {
+    const capture = bundle.pages[currentPageIndex];
+    if (capture.screenshot) {
+      openScreenshotModal(capture.screenshot);
+    }
+  }
+});
+
+screenshotModalClose.addEventListener('click', closeScreenshotModal);
+
+screenshotModal.addEventListener('click', (e) => {
+  // Close modal if clicking outside the image
+  if (e.target === screenshotModal) {
+    closeScreenshotModal();
+  }
+});
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && screenshotModal.classList.contains('visible')) {
+    closeScreenshotModal();
+  }
+});
 
 // Listen for tab changes
 chrome.tabs.onActivated.addListener(async (_activeInfo) => {

@@ -968,6 +968,78 @@
       outline: none;
       border-color: #f59e0b;
     }
+
+    /* Screenshot section */
+    .screenshot-container {
+      width: 100%;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #f3f4f6;
+    }
+
+    .screenshot-placeholder {
+      padding: 24px 16px;
+      text-align: center;
+      color: #9ca3af;
+      font-size: 12px;
+    }
+
+    .screenshot-thumb {
+      width: 100%;
+      height: auto;
+      display: block;
+      cursor: pointer;
+      transition: opacity 0.15s ease;
+    }
+
+    .screenshot-thumb:hover {
+      opacity: 0.9;
+    }
+
+    /* Screenshot modal */
+    .screenshot-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      z-index: 200;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+    }
+
+    .screenshot-modal.visible {
+      display: flex;
+    }
+
+    .screenshot-modal-content {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      border-radius: 8px;
+    }
+
+    .screenshot-modal-close {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 36px;
+      height: 36px;
+      border: none;
+      background: rgba(255, 255, 255, 0.9);
+      color: #1f2937;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s ease;
+    }
+
+    .screenshot-modal-close:hover {
+      background: #ffffff;
+    }
   </style>
 </head>
 <body>
@@ -1080,6 +1152,20 @@
         <input type="text" class="editable-field url-field" id="editUrl" placeholder="URL" style="margin-top: 8px;">
       </div>
 
+      <!-- Screenshot -->
+      <div class="preview-section" id="screenshotSection">
+        <div class="preview-section-header">
+          <span class="preview-section-title">Screenshot</span>
+          <span class="preview-section-badge" id="screenshotBadge">-</span>
+        </div>
+        <div class="screenshot-container" id="screenshotContainer">
+          <div class="screenshot-placeholder" id="screenshotPlaceholder">
+            No screenshot available
+          </div>
+          <img class="screenshot-thumb" id="screenshotThumb" alt="Page screenshot" style="display: none;">
+        </div>
+      </div>
+
       <!-- Text Preview -->
       <div class="preview-section">
         <div class="preview-section-header">
@@ -1126,6 +1212,13 @@
             <span class="toggle-slider"></span>
           </label>
         </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Screenshot</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="includeScreenshot" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
         <!-- Move to bundle -->
         <div class="move-bundle-section" id="moveBundleSection">
           <div class="move-bundle-label">Move to another bundle</div>
@@ -1145,6 +1238,12 @@
 
   <!-- Toast -->
   <div class="toast" id="toast"></div>
+
+  <!-- Screenshot Modal -->
+  <div class="screenshot-modal" id="screenshotModal">
+    <button class="screenshot-modal-close" id="screenshotModalClose">&times;</button>
+    <img class="screenshot-modal-content" id="screenshotModalImg" alt="Full screenshot">
+  </div>
 
   <script src="sidepanel.js"></script>
 </body>

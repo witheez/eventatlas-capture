@@ -1,13 +1,16 @@
 {
   "manifest_version": 3,
   "name": "EventAtlas Capture",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Capture web content for EventAtlas - one-click content capture from any webpage",
   "permissions": [
     "activeTab",
     "storage",
     "sidePanel",
     "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
   ],
   "side_panel": {
     "default_path": "sidepanel/sidepanel.html"
