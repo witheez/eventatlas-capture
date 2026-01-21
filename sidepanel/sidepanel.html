@@ -11,6 +11,11 @@
       padding: 0;
     }
 
+    html {
+      width: 100%;
+      overflow-x: hidden;
+    }
+
     body {
       width: 100%;
       min-height: 100vh;
@@ -19,6 +24,7 @@
       font-size: 14px;
       color: #1f2937;
       background: #ffffff;
+      overflow-x: hidden;
       overflow-y: auto;
     }
 
@@ -150,19 +156,26 @@
 
     .capture-btn-group .capture-btn-main {
       flex: 1;
-      border-radius: 8px 0 0 8px;
+      min-width: 0;
+      border-radius: 8px;
+      background: #78350f;
+      white-space: nowrap;
+    }
+
+    .capture-btn-group .capture-btn-main:hover {
+      background: #5c2d0e;
     }
 
     .capture-btn-group .capture-btn-screenshot {
-      flex: 0 0 auto;
-      padding: 12px 14px;
-      border-radius: 0 8px 8px 0;
-      background: #d97706;
-      border-left: 1px solid rgba(255, 255, 255, 0.2);
+      flex: 1;
+      min-width: 0;
+      border-radius: 8px;
+      background: #f59e0b;
+      white-space: nowrap;
     }
 
     .capture-btn-group .capture-btn-screenshot:hover {
-      background: #b45309;
+      background: #d97706;
     }
 
     .capture-btn-icon {
@@ -1148,7 +1161,7 @@
     <div class="capture-buttons" id="captureButtons">
       <!-- Single button when screenshot default is ON -->
       <button class="capture-btn" id="captureBtn" style="display: none;">
-        Capture Page
+        <span class="capture-btn-icon">📄📸</span> Capture Page + Screenshot
       </button>
       <!-- Two buttons when screenshot default is OFF -->
       <div class="capture-btn-group" id="captureBtnGroup">
