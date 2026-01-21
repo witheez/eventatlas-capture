@@ -1,58 +1,74 @@
 /**
  * EventAtlas Capture - Side Panel Script
  *
- * Handles side panel UI interactions, preview display, and session storage
- * for captured page data. Side panel stays open while navigating between tabs.
+ * Handles side panel UI interactions, preview display, and bundle storage
+ * for captured page data. Supports multi-page bundling with persistence.
  */
 
-// Storage key for session data
-const STORAGE_KEY = 'eventatlas_capture_data';
+// Storage key for bundle data
+const BUNDLE_STORAGE_KEY = 'eventatlas_capture_bundle';
+const MAX_BUNDLE_PAGES = 20;
 
-// Current capture state
-let captureData = null;
+// Bundle state - array of captures
+let bundle = [];
+
+// Current view state
+let currentView = 'bundle'; // 'bundle' or 'detail'
+let currentDetailIndex = null;
+
+// Detail view state
 let selectedImages = new Set();
 let textExpanded = false;
 
-// DOM Elements
+// Pending capture for duplicate handling
+let pendingCapture = null;
+
+// DOM Elements - Views
+const bundleView = document.getElementById('bundleView');
+const detailView = document.getElementById('detailView');
+const backNav = document.getElementById('backNav');
+
+// DOM Elements - Bundle view
 const pageTitleEl = document.getElementById('pageTitle');
 const pageUrlEl = document.getElementById('pageUrl');
 const captureBtn = document.getElementById('captureBtn');
 const captureBadge = document.getElementById('captureBadge');
-const previewEl = document.getElementById('preview');
-const toastEl = document.getElementById('toast');
+const bundleSection = document.getElementById('bundleSection');
+const bundleList = document.getElementById('bundleList');
+const bundleCount = document.getElementById('bundleCount');
+const copyBundleBtn = document.getElementById('copyBundleBtn');
+const clearBundleBtn = document.getElementById('clearBundleBtn');
+
+// DOM Elements - Error/Dialog
 const errorMessageEl = document.getElementById('errorMessage');
 const errorTitleEl = document.getElementById('errorTitle');
 const errorHintEl = document.getElementById('errorHint');
+const duplicateDialog = document.getElementById('duplicateDialog');
+const duplicateText = document.getElementById('duplicateText');
+const duplicateReplace = document.getElementById('duplicateReplace');
+const duplicateSkip = document.getElementById('duplicateSkip');
 
-// Stats elements
+// DOM Elements - Detail view
+const previewEl = document.getElementById('preview');
 const htmlSizeStat = document.getElementById('htmlSizeStat');
 const textSizeStat = document.getElementById('textSizeStat');
 const imageSizeStat = document.getElementById('imageSizeStat');
-
-// Editable fields
 const editTitle = document.getElementById('editTitle');
 const editUrl = document.getElementById('editUrl');
-
-// Text preview elements
 const textPreview = document.getElementById('textPreview');
 const textCharCount = document.getElementById('textCharCount');
 const textToggle = document.getElementById('textToggle');
-
-// Image elements
 const imageGallery = document.getElementById('imageGallery');
 const imageSelectedCount = document.getElementById('imageSelectedCount');
-
-// Metadata elements
 const metadataSection = document.getElementById('metadataSection');
 const metadataList = document.getElementById('metadataList');
-
-// Toggle elements
 const includeHtml = document.getElementById('includeHtml');
 const includeImages = document.getElementById('includeImages');
-
-// Action buttons
 const copyBtn = document.getElementById('copyBtn');
-const clearBtn = document.getElementById('clearBtn');
+const removeBtn = document.getElementById('removeBtn');
+
+// DOM Elements - Toast
+const toastEl = document.getElementById('toast');
 
 /**
  * Format bytes to human-readable string
@@ -63,6 +79,17 @@ function formatBytes(bytes) {
   const sizes = ['B', 'KB', 'MB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+/**
+ * Extract domain from URL
+ */
+function getDomain(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
 }
 
 /**
@@ -77,7 +104,7 @@ function showToast(message, type = 'success') {
 }
 
 /**
- * Show error message box with actionable hint
+ * Show error message box
  */
 function showErrorMessage(title, hint) {
   errorTitleEl.textContent = title;
@@ -90,6 +117,22 @@ function showErrorMessage(title, hint) {
  */
 function hideErrorMessage() {
   errorMessageEl.classList.remove('visible');
+}
+
+/**
+ * Show duplicate URL dialog
+ */
+function showDuplicateDialog(existingTitle) {
+  duplicateText.textContent = `"${existingTitle}" is already in the bundle.`;
+  duplicateDialog.classList.add('visible');
+}
+
+/**
+ * Hide duplicate URL dialog
+ */
+function hideDuplicateDialog() {
+  duplicateDialog.classList.remove('visible');
+  pendingCapture = null;
 }
 
 /**
@@ -109,108 +152,191 @@ async function updateTabInfo() {
 }
 
 /**
- * Save capture data to session storage
+ * Save bundle to local storage
  */
-async function saveToStorage() {
-  if (!captureData) return;
-
-  // Create storable version (without full HTML to save space if very large)
-  const storableData = {
-    ...captureData,
-    selectedImages: Array.from(selectedImages),
-    editedTitle: editTitle.value,
-    editedUrl: editUrl.value,
-    includeHtml: includeHtml.checked,
-    includeImages: includeImages.checked,
-  };
-
+async function saveBundleToStorage() {
   try {
-    await chrome.storage.session.set({ [STORAGE_KEY]: storableData });
+    await chrome.storage.local.set({ [BUNDLE_STORAGE_KEY]: bundle });
   } catch (err) {
-    console.error('Error saving to storage:', err);
-    // Fall back to local storage if session storage fails
-    try {
-      await chrome.storage.local.set({ [STORAGE_KEY]: storableData });
-    } catch (localErr) {
-      console.error('Error saving to local storage:', localErr);
-    }
+    console.error('Error saving bundle:', err);
   }
 }
 
 /**
- * Load capture data from session storage
+ * Load bundle from local storage
  */
-async function loadFromStorage() {
+async function loadBundleFromStorage() {
   try {
-    // Try session storage first
-    let result = await chrome.storage.session.get(STORAGE_KEY);
-
-    // Fall back to local storage
-    if (!result[STORAGE_KEY]) {
-      result = await chrome.storage.local.get(STORAGE_KEY);
-    }
-
-    if (result[STORAGE_KEY]) {
-      captureData = result[STORAGE_KEY];
-      selectedImages = new Set(captureData.selectedImages || captureData.images || []);
-
-      // Restore toggle states
-      if (typeof captureData.includeHtml === 'boolean') {
-        includeHtml.checked = captureData.includeHtml;
-      }
-      if (typeof captureData.includeImages === 'boolean') {
-        includeImages.checked = captureData.includeImages;
-      }
-
-      renderPreview();
+    const result = await chrome.storage.local.get(BUNDLE_STORAGE_KEY);
+    if (result[BUNDLE_STORAGE_KEY] && Array.isArray(result[BUNDLE_STORAGE_KEY])) {
+      bundle = result[BUNDLE_STORAGE_KEY];
       return true;
     }
   } catch (err) {
-    console.error('Error loading from storage:', err);
+    console.error('Error loading bundle:', err);
   }
+  bundle = [];
   return false;
 }
 
 /**
- * Clear capture data from storage
+ * Clear bundle from storage
  */
-async function clearStorage() {
+async function clearBundleStorage() {
   try {
-    await chrome.storage.session.remove(STORAGE_KEY);
-    await chrome.storage.local.remove(STORAGE_KEY);
+    await chrome.storage.local.remove(BUNDLE_STORAGE_KEY);
   } catch (err) {
-    console.error('Error clearing storage:', err);
+    console.error('Error clearing bundle:', err);
   }
 }
 
 /**
- * Render the preview UI with captured data
+ * Switch between views
  */
-function renderPreview() {
-  if (!captureData) {
-    previewEl.classList.remove('visible');
-    captureBadge.textContent = 'No capture';
+function switchView(view) {
+  currentView = view;
+
+  if (view === 'bundle') {
+    bundleView.classList.add('active');
+    detailView.classList.remove('active');
+    backNav.classList.remove('visible');
+    currentDetailIndex = null;
+  } else if (view === 'detail') {
+    bundleView.classList.remove('active');
+    detailView.classList.add('active');
+    backNav.classList.add('visible');
+  }
+}
+
+/**
+ * Update header badge
+ */
+function updateBadge() {
+  const count = bundle.length;
+  if (count === 0) {
+    captureBadge.textContent = 'No captures';
     captureBadge.classList.remove('has-capture');
-    captureBtn.textContent = 'Capture Page';
+  } else {
+    captureBadge.textContent = `${count} page${count !== 1 ? 's' : ''}`;
+    captureBadge.classList.add('has-capture');
+  }
+}
+
+/**
+ * Render the bundle list
+ */
+function renderBundleList() {
+  clearChildren(bundleList);
+  updateBadge();
+
+  const count = bundle.length;
+  bundleCount.textContent = `${count} page${count !== 1 ? 's' : ''} captured`;
+
+  if (count === 0) {
+    const emptyEl = document.createElement('div');
+    emptyEl.className = 'bundle-empty';
+    emptyEl.textContent = 'No pages captured yet. Click "Add to Bundle" to start.';
+    bundleList.appendChild(emptyEl);
     return;
   }
 
-  // Update badge
-  captureBadge.textContent = 'Has capture';
-  captureBadge.classList.add('has-capture');
-  captureBtn.textContent = 'Recapture Page';
+  bundle.forEach((capture, index) => {
+    const item = document.createElement('div');
+    item.className = 'bundle-item';
 
+    // Thumbnail
+    const thumb = document.createElement('div');
+    thumb.className = 'bundle-item-thumb';
+
+    // Try to use first image as thumbnail
+    const thumbUrl = capture.images?.[0] || capture.selectedImages?.[0];
+    if (thumbUrl) {
+      const img = document.createElement('img');
+      img.src = thumbUrl;
+      img.alt = '';
+      img.onerror = () => {
+        thumb.textContent = '📄';
+      };
+      thumb.appendChild(img);
+    } else {
+      thumb.textContent = '📄';
+    }
+
+    // Info
+    const info = document.createElement('div');
+    info.className = 'bundle-item-info';
+
+    const title = document.createElement('div');
+    title.className = 'bundle-item-title';
+    title.textContent = capture.editedTitle || capture.title || 'Untitled';
+
+    const domain = document.createElement('div');
+    domain.className = 'bundle-item-domain';
+    domain.textContent = getDomain(capture.editedUrl || capture.url || '');
+
+    info.appendChild(title);
+    info.appendChild(domain);
+
+    // Remove button
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'bundle-item-remove';
+    removeBtn.innerHTML = '&times;';
+    removeBtn.title = 'Remove from bundle';
+    removeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeFromBundle(index);
+    });
+
+    // Click to view details
+    item.addEventListener('click', () => {
+      viewCaptureDetail(index);
+    });
+
+    item.appendChild(thumb);
+    item.appendChild(info);
+    item.appendChild(removeBtn);
+    bundleList.appendChild(item);
+  });
+}
+
+/**
+ * View capture detail
+ */
+function viewCaptureDetail(index) {
+  if (index < 0 || index >= bundle.length) return;
+
+  currentDetailIndex = index;
+  const capture = bundle[index];
+
+  // Restore selected images for this capture
+  selectedImages = new Set(capture.selectedImages || capture.images || []);
+
+  // Restore toggle states
+  includeHtml.checked = capture.includeHtml !== false;
+  includeImages.checked = capture.includeImages !== false;
+
+  // Reset text expansion
+  textExpanded = false;
+
+  renderDetailPreview(capture);
+  switchView('detail');
+}
+
+/**
+ * Render detail preview for a capture
+ */
+function renderDetailPreview(capture) {
   // Stats
-  htmlSizeStat.textContent = formatBytes(captureData.html?.length || 0);
-  textSizeStat.textContent = formatBytes(captureData.text?.length || 0);
-  imageSizeStat.textContent = String(captureData.images?.length || 0);
+  htmlSizeStat.textContent = formatBytes(capture.html?.length || 0);
+  textSizeStat.textContent = formatBytes(capture.text?.length || 0);
+  imageSizeStat.textContent = String(capture.images?.length || 0);
 
-  // Editable fields - use edited values if available
-  editTitle.value = captureData.editedTitle || captureData.title || '';
-  editUrl.value = captureData.editedUrl || captureData.url || '';
+  // Editable fields
+  editTitle.value = capture.editedTitle || capture.title || '';
+  editUrl.value = capture.editedUrl || capture.url || '';
 
   // Text preview
-  const fullText = captureData.text || '';
+  const fullText = capture.text || '';
   const previewText = fullText.substring(0, 500);
   textPreview.textContent = textExpanded ? fullText : previewText + (fullText.length > 500 ? '...' : '');
   textCharCount.textContent = `${fullText.length.toLocaleString()} chars`;
@@ -218,17 +344,14 @@ function renderPreview() {
   textToggle.textContent = textExpanded ? 'Show less' : 'Show more';
 
   // Image gallery
-  renderImageGallery();
+  renderImageGallery(capture);
 
   // Metadata
-  renderMetadata();
-
-  // Show preview
-  previewEl.classList.add('visible');
+  renderMetadata(capture);
 }
 
 /**
- * Clear all children from an element safely
+ * Clear all children from an element
  */
 function clearChildren(element) {
   while (element.firstChild) {
@@ -237,12 +360,12 @@ function clearChildren(element) {
 }
 
 /**
- * Render image gallery with selection checkboxes
+ * Render image gallery
  */
-function renderImageGallery() {
+function renderImageGallery(capture) {
   clearChildren(imageGallery);
 
-  const images = captureData.images || [];
+  const images = capture.images || [];
 
   if (images.length === 0) {
     const emptyEl = document.createElement('div');
@@ -285,8 +408,8 @@ function renderImageGallery() {
         selectedImages.delete(url);
         item.classList.add('excluded');
       }
-      updateImageCount();
-      saveToStorage();
+      updateImageCount(capture);
+      saveCurrentDetail();
     });
 
     item.appendChild(img);
@@ -303,14 +426,14 @@ function renderImageGallery() {
     imageGallery.appendChild(item);
   });
 
-  updateImageCount();
+  updateImageCount(capture);
 }
 
 /**
- * Update image selected count display
+ * Update image selected count
  */
-function updateImageCount() {
-  const total = captureData.images?.length || 0;
+function updateImageCount(capture) {
+  const total = capture.images?.length || 0;
   const selected = selectedImages.size;
   imageSelectedCount.textContent = `${selected}/${total} selected`;
 }
@@ -318,8 +441,8 @@ function updateImageCount() {
 /**
  * Render metadata section
  */
-function renderMetadata() {
-  const metadata = captureData.metadata || {};
+function renderMetadata(capture) {
+  const metadata = capture.metadata || {};
   const entries = Object.entries(metadata);
 
   if (entries.length === 0) {
@@ -350,39 +473,61 @@ function renderMetadata() {
 }
 
 /**
- * Build export data based on current settings
+ * Save current detail view edits back to bundle
  */
-function buildExportData() {
-  if (!captureData) return null;
+function saveCurrentDetail() {
+  if (currentDetailIndex === null || currentDetailIndex >= bundle.length) return;
 
-  const exportData = {
-    url: editUrl.value || captureData.url,
-    title: editTitle.value || captureData.title,
-    text: captureData.text,
-    metadata: captureData.metadata,
-    capturedAt: captureData.capturedAt,
+  bundle[currentDetailIndex] = {
+    ...bundle[currentDetailIndex],
+    selectedImages: Array.from(selectedImages),
+    editedTitle: editTitle.value,
+    editedUrl: editUrl.value,
+    includeHtml: includeHtml.checked,
+    includeImages: includeImages.checked,
   };
 
-  if (includeHtml.checked) {
-    exportData.html = captureData.html;
+  saveBundleToStorage();
+}
+
+/**
+ * Build export data for a single capture
+ */
+function buildExportData(capture) {
+  const exportData = {
+    url: capture.editedUrl || capture.url,
+    title: capture.editedTitle || capture.title,
+    text: capture.text,
+    metadata: capture.metadata,
+    capturedAt: capture.capturedAt,
+  };
+
+  if (capture.includeHtml !== false) {
+    exportData.html = capture.html;
   }
 
-  if (includeImages.checked && selectedImages.size > 0) {
-    exportData.images = Array.from(selectedImages);
+  const images = capture.selectedImages || capture.images || [];
+  if (capture.includeImages !== false && images.length > 0) {
+    exportData.images = images;
   }
 
   return exportData;
 }
 
 /**
- * Copy export data to clipboard
+ * Copy single capture to clipboard
  */
-async function copyToClipboard() {
-  const exportData = buildExportData();
-  if (!exportData) {
-    showToast('No capture data to copy', 'error');
+async function copySingleToClipboard() {
+  if (currentDetailIndex === null || currentDetailIndex >= bundle.length) {
+    showToast('No capture selected', 'error');
     return;
   }
+
+  // Save any pending edits first
+  saveCurrentDetail();
+
+  const capture = bundle[currentDetailIndex];
+  const exportData = buildExportData(capture);
 
   try {
     const json = JSON.stringify(exportData, null, 2);
@@ -395,20 +540,112 @@ async function copyToClipboard() {
 }
 
 /**
- * Clear all captured data
+ * Copy entire bundle to clipboard
  */
-async function clearCapture() {
-  captureData = null;
-  selectedImages.clear();
-  textExpanded = false;
-  await clearStorage();
-  renderPreview();
-  hideErrorMessage();
-  showToast('Capture cleared', 'success');
+async function copyBundleToClipboard() {
+  if (bundle.length === 0) {
+    showToast('No pages in bundle', 'error');
+    return;
+  }
+
+  const exportBundle = bundle.map(capture => buildExportData(capture));
+
+  try {
+    const json = JSON.stringify(exportBundle, null, 2);
+    await navigator.clipboard.writeText(json);
+    showToast(`Copied ${bundle.length} page${bundle.length !== 1 ? 's' : ''} to clipboard!`, 'success');
+  } catch (err) {
+    console.error('Copy bundle failed:', err);
+    showToast('Failed to copy bundle', 'error');
+  }
 }
 
 /**
- * Check if an error is a connection error that requires page refresh
+ * Remove capture from bundle by index
+ */
+async function removeFromBundle(index) {
+  if (index < 0 || index >= bundle.length) return;
+
+  const removed = bundle.splice(index, 1)[0];
+  await saveBundleToStorage();
+
+  // If we're viewing the removed item, go back to list
+  if (currentView === 'detail' && currentDetailIndex === index) {
+    switchView('bundle');
+  } else if (currentView === 'detail' && currentDetailIndex > index) {
+    // Adjust index if we removed something before current view
+    currentDetailIndex--;
+  }
+
+  renderBundleList();
+  showToast(`Removed "${removed.title || 'page'}" from bundle`, 'success');
+}
+
+/**
+ * Remove current capture from bundle (from detail view)
+ */
+async function removeCurrentFromBundle() {
+  if (currentDetailIndex !== null) {
+    await removeFromBundle(currentDetailIndex);
+  }
+}
+
+/**
+ * Clear entire bundle
+ */
+async function clearBundle() {
+  bundle = [];
+  await clearBundleStorage();
+
+  if (currentView === 'detail') {
+    switchView('bundle');
+  }
+
+  renderBundleList();
+  showToast('Bundle cleared', 'success');
+}
+
+/**
+ * Find duplicate URL in bundle
+ */
+function findDuplicateIndex(url) {
+  return bundle.findIndex(capture => {
+    const captureUrl = capture.editedUrl || capture.url;
+    return captureUrl === url;
+  });
+}
+
+/**
+ * Add capture to bundle
+ */
+async function addToBundle(capture, replaceIndex = -1) {
+  // Prepare capture data
+  const captureData = {
+    ...capture,
+    selectedImages: capture.images || [],
+    includeHtml: true,
+    includeImages: true,
+  };
+
+  if (replaceIndex >= 0 && replaceIndex < bundle.length) {
+    // Replace existing
+    bundle[replaceIndex] = captureData;
+  } else {
+    // Check bundle limit
+    if (bundle.length >= MAX_BUNDLE_PAGES) {
+      showToast(`Bundle limit reached (${MAX_BUNDLE_PAGES} pages max)`, 'error');
+      return false;
+    }
+    bundle.push(captureData);
+  }
+
+  await saveBundleToStorage();
+  renderBundleList();
+  return true;
+}
+
+/**
+ * Check if an error is a connection error
  */
 function isConnectionError(error) {
   const errorMessage = error?.message || String(error);
@@ -422,12 +659,13 @@ function isConnectionError(error) {
 }
 
 /**
- * Capture page content via content script
+ * Capture page content
  */
 async function capturePage() {
   captureBtn.disabled = true;
   captureBtn.textContent = 'Capturing...';
   hideErrorMessage();
+  hideDuplicateDialog();
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -436,7 +674,7 @@ async function capturePage() {
       throw new Error('No active tab found');
     }
 
-    // Check if we can inject into this page
+    // Check if we can capture this page
     if (tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://')) {
       throw new Error('Cannot capture Chrome system pages');
     }
@@ -448,36 +686,40 @@ async function capturePage() {
       throw new Error(response.error);
     }
 
-    // Store capture data
-    captureData = response;
+    // Check for duplicate URL
+    const duplicateIndex = findDuplicateIndex(response.url);
 
-    // Select all images by default
-    selectedImages = new Set(captureData.images || []);
+    if (duplicateIndex >= 0) {
+      // Show duplicate dialog
+      pendingCapture = { capture: response, duplicateIndex };
+      showDuplicateDialog(bundle[duplicateIndex].editedTitle || bundle[duplicateIndex].title);
 
-    // Reset text expansion
-    textExpanded = false;
-
-    // Save to storage
-    await saveToStorage();
-
-    // Render preview
-    renderPreview();
-
-    captureBtn.textContent = 'Captured!';
-    captureBtn.classList.add('success');
-    showToast('Page captured successfully!', 'success');
-
-    // Reset button after 1.5 seconds
-    setTimeout(() => {
-      captureBtn.textContent = 'Recapture Page';
-      captureBtn.classList.remove('success');
+      captureBtn.textContent = 'Add to Bundle';
       captureBtn.disabled = false;
-    }, 1500);
+      return;
+    }
+
+    // Add to bundle
+    const success = await addToBundle(response);
+
+    if (success) {
+      captureBtn.textContent = 'Added!';
+      captureBtn.classList.add('success');
+      showToast(`Added to bundle (${bundle.length} page${bundle.length !== 1 ? 's' : ''})`, 'success');
+
+      setTimeout(() => {
+        captureBtn.textContent = 'Add to Bundle';
+        captureBtn.classList.remove('success');
+        captureBtn.disabled = false;
+      }, 1500);
+    } else {
+      captureBtn.textContent = 'Add to Bundle';
+      captureBtn.disabled = false;
+    }
 
   } catch (err) {
     console.error('Capture error:', err);
 
-    // Check for connection errors and show helpful message
     if (isConnectionError(err)) {
       showErrorMessage(
         'Could not connect to page',
@@ -492,46 +734,90 @@ async function capturePage() {
     captureBtn.classList.add('error');
 
     setTimeout(() => {
-      captureBtn.textContent = captureData ? 'Recapture Page' : 'Capture Page';
+      captureBtn.textContent = 'Add to Bundle';
       captureBtn.classList.remove('error');
       captureBtn.disabled = false;
     }, 2000);
   }
 }
 
-// Event Listeners
+/**
+ * Handle duplicate replace
+ */
+async function handleDuplicateReplace() {
+  if (!pendingCapture) return;
+
+  const { capture, duplicateIndex } = pendingCapture;
+  hideDuplicateDialog();
+
+  const success = await addToBundle(capture, duplicateIndex);
+  if (success) {
+    showToast('Replaced existing page in bundle', 'success');
+  }
+
+  pendingCapture = null;
+}
+
+/**
+ * Handle duplicate skip
+ */
+function handleDuplicateSkip() {
+  hideDuplicateDialog();
+  showToast('Page skipped (already in bundle)', 'success');
+  pendingCapture = null;
+}
+
+// Event Listeners - Bundle view
 captureBtn.addEventListener('click', capturePage);
-copyBtn.addEventListener('click', copyToClipboard);
-clearBtn.addEventListener('click', clearCapture);
+copyBundleBtn.addEventListener('click', copyBundleToClipboard);
+clearBundleBtn.addEventListener('click', clearBundle);
+
+// Event Listeners - Duplicate dialog
+duplicateReplace.addEventListener('click', handleDuplicateReplace);
+duplicateSkip.addEventListener('click', handleDuplicateSkip);
+
+// Event Listeners - Navigation
+backNav.addEventListener('click', () => {
+  saveCurrentDetail();
+  switchView('bundle');
+  renderBundleList();
+});
+
+// Event Listeners - Detail view
+copyBtn.addEventListener('click', copySingleToClipboard);
+removeBtn.addEventListener('click', removeCurrentFromBundle);
 
 textToggle.addEventListener('click', () => {
+  if (currentDetailIndex === null || currentDetailIndex >= bundle.length) return;
+
   textExpanded = !textExpanded;
-  const fullText = captureData?.text || '';
+  const fullText = bundle[currentDetailIndex].text || '';
   textPreview.textContent = textExpanded ? fullText : fullText.substring(0, 500) + (fullText.length > 500 ? '...' : '');
   textToggle.textContent = textExpanded ? 'Show less' : 'Show more';
   textPreview.classList.toggle('expanded', textExpanded);
 });
 
 // Save edits on change
-editTitle.addEventListener('change', saveToStorage);
-editUrl.addEventListener('change', saveToStorage);
-includeHtml.addEventListener('change', saveToStorage);
-includeImages.addEventListener('change', saveToStorage);
+editTitle.addEventListener('change', saveCurrentDetail);
+editUrl.addEventListener('change', saveCurrentDetail);
+includeHtml.addEventListener('change', saveCurrentDetail);
+includeImages.addEventListener('change', saveCurrentDetail);
 
-// Listen for tab changes to update current page info
+// Listen for tab changes
 chrome.tabs.onActivated.addListener(async (_activeInfo) => {
   await updateTabInfo();
   hideErrorMessage();
+  hideDuplicateDialog();
 });
 
 // Listen for tab URL/title changes
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, _tab) => {
-  // Only update if it's the active tab and there's relevant change
   if (changeInfo.title || changeInfo.url) {
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (activeTab && activeTab.id === tabId) {
       await updateTabInfo();
       hideErrorMessage();
+      hideDuplicateDialog();
     }
   }
 });
@@ -539,7 +825,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, _tab) => {
 // Initialize
 async function init() {
   await updateTabInfo();
-  await loadFromStorage();
+  await loadBundleFromStorage();
+  renderBundleList();
 }
 
 init();

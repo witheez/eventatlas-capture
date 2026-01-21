@@ -52,6 +52,204 @@
       color: #065f46;
     }
 
+    /* Back navigation */
+    .back-nav {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      padding: 8px 12px;
+      background: #f3f4f6;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .back-nav:hover {
+      background: #e5e7eb;
+    }
+
+    .back-nav.visible {
+      display: flex;
+    }
+
+    .back-nav-arrow {
+      font-size: 16px;
+      color: #6b7280;
+    }
+
+    .back-nav-text {
+      font-size: 13px;
+      color: #374151;
+      font-weight: 500;
+    }
+
+    /* Bundle section */
+    .bundle-section {
+      margin-bottom: 16px;
+      padding: 12px;
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+    }
+
+    .bundle-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .bundle-title {
+      font-weight: 600;
+      font-size: 14px;
+      color: #78350f;
+    }
+
+    .bundle-count {
+      font-size: 12px;
+      color: #92400e;
+    }
+
+    .bundle-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .bundle-action-btn {
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .bundle-action-btn.primary {
+      background: #f59e0b;
+      color: #ffffff;
+    }
+
+    .bundle-action-btn.primary:hover {
+      background: #d97706;
+    }
+
+    .bundle-action-btn.secondary {
+      background: #ffffff;
+      color: #78350f;
+      border: 1px solid #fcd34d;
+    }
+
+    .bundle-action-btn.secondary:hover {
+      background: #fef3c7;
+    }
+
+    .bundle-action-btn.danger {
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+
+    .bundle-action-btn.danger:hover {
+      background: #fee2e2;
+    }
+
+    /* Bundle list */
+    .bundle-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .bundle-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .bundle-item:hover {
+      border-color: #f59e0b;
+      box-shadow: 0 1px 3px rgba(245, 158, 11, 0.2);
+    }
+
+    .bundle-item-thumb {
+      width: 40px;
+      height: 40px;
+      background: #f3f4f6;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      color: #9ca3af;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    .bundle-item-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .bundle-item-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .bundle-item-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: #1f2937;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .bundle-item-domain {
+      font-size: 11px;
+      color: #6b7280;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .bundle-item-remove {
+      width: 24px;
+      height: 24px;
+      border: none;
+      background: transparent;
+      color: #9ca3af;
+      cursor: pointer;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: background 0.15s ease, color 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .bundle-item-remove:hover {
+      background: #fee2e2;
+      color: #dc2626;
+    }
+
+    .bundle-empty {
+      text-align: center;
+      padding: 16px;
+      color: #6b7280;
+      font-size: 13px;
+    }
+
     /* Status section - current page info */
     .status {
       padding: 12px;
@@ -133,6 +331,37 @@
 
     .error-message-hint {
       color: #dc2626;
+    }
+
+    /* Duplicate URL dialog */
+    .duplicate-dialog {
+      display: none;
+      margin-top: 12px;
+      padding: 12px;
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    .duplicate-dialog.visible {
+      display: block;
+    }
+
+    .duplicate-dialog-title {
+      font-weight: 600;
+      color: #78350f;
+      margin-bottom: 8px;
+    }
+
+    .duplicate-dialog-text {
+      color: #92400e;
+      margin-bottom: 12px;
+    }
+
+    .duplicate-dialog-actions {
+      display: flex;
+      gap: 8px;
     }
 
     /* Preview section */
@@ -385,6 +614,32 @@
       transform: translateX(18px);
     }
 
+    /* Stats row */
+    .stats-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .stat-item {
+      flex: 1;
+      padding: 8px;
+      background: #fef3c7;
+      border-radius: 6px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-weight: 600;
+      font-size: 14px;
+      color: #78350f;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: #92400e;
+    }
+
     /* Action buttons */
     .action-buttons {
       display: flex;
@@ -457,154 +712,160 @@
       background: #991b1b;
     }
 
-    /* Empty state */
-    .empty-state {
-      text-align: center;
-      padding: 24px 16px;
-      color: #6b7280;
+    /* View states */
+    .view {
+      display: none;
     }
 
-    .empty-state-icon {
-      font-size: 32px;
-      margin-bottom: 8px;
-    }
-
-    .empty-state-text {
-      font-size: 13px;
-    }
-
-    /* Stats row */
-    .stats-row {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 12px;
-    }
-
-    .stat-item {
-      flex: 1;
-      padding: 8px;
-      background: #fef3c7;
-      border-radius: 6px;
-      text-align: center;
-    }
-
-    .stat-value {
-      font-weight: 600;
-      font-size: 14px;
-      color: #78350f;
-    }
-
-    .stat-label {
-      font-size: 11px;
-      color: #92400e;
+    .view.active {
+      display: block;
     }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>EventAtlas Capture</h1>
-    <span class="header-badge" id="captureBadge">No capture</span>
+    <span class="header-badge" id="captureBadge">No captures</span>
   </div>
 
-  <div class="status">
-    <div class="status-label">Current Page</div>
-    <div class="status-value truncate" id="pageTitle">Loading...</div>
-    <div class="status-value" id="pageUrl" style="font-size: 12px; color: #6b7280; margin-top: 4px;"></div>
+  <!-- Back navigation (shown in detail view) -->
+  <div class="back-nav" id="backNav">
+    <span class="back-nav-arrow">&#8592;</span>
+    <span class="back-nav-text">Back to Bundle</span>
   </div>
 
-  <button class="capture-btn" id="captureBtn">
-    Capture Page
-  </button>
+  <!-- Bundle List View -->
+  <div class="view active" id="bundleView">
+    <!-- Current page status -->
+    <div class="status">
+      <div class="status-label">Current Page</div>
+      <div class="status-value truncate" id="pageTitle">Loading...</div>
+      <div class="status-value" id="pageUrl" style="font-size: 12px; color: #6b7280; margin-top: 4px;"></div>
+    </div>
 
-  <!-- Error message box -->
-  <div class="error-message" id="errorMessage">
-    <div class="error-message-title" id="errorTitle">Capture failed</div>
-    <div class="error-message-hint" id="errorHint"></div>
+    <button class="capture-btn" id="captureBtn">
+      Add to Bundle
+    </button>
+
+    <!-- Error message box -->
+    <div class="error-message" id="errorMessage">
+      <div class="error-message-title" id="errorTitle">Capture failed</div>
+      <div class="error-message-hint" id="errorHint"></div>
+    </div>
+
+    <!-- Duplicate URL dialog -->
+    <div class="duplicate-dialog" id="duplicateDialog">
+      <div class="duplicate-dialog-title">Page already in bundle</div>
+      <div class="duplicate-dialog-text" id="duplicateText">This URL has already been captured.</div>
+      <div class="duplicate-dialog-actions">
+        <button class="bundle-action-btn primary" id="duplicateReplace">Replace</button>
+        <button class="bundle-action-btn secondary" id="duplicateSkip">Skip</button>
+      </div>
+    </div>
+
+    <!-- Bundle section -->
+    <div class="bundle-section" id="bundleSection">
+      <div class="bundle-header">
+        <div>
+          <div class="bundle-title">Bundle</div>
+          <div class="bundle-count" id="bundleCount">0 pages captured</div>
+        </div>
+        <div class="bundle-actions">
+          <button class="bundle-action-btn primary" id="copyBundleBtn">Copy All</button>
+          <button class="bundle-action-btn danger" id="clearBundleBtn">Clear All</button>
+        </div>
+      </div>
+      <div class="bundle-list" id="bundleList">
+        <div class="bundle-empty">No pages captured yet. Click "Add to Bundle" to start.</div>
+      </div>
+    </div>
   </div>
 
-  <!-- Preview Section -->
-  <div class="preview" id="preview">
-    <div class="preview-header">
-      <span class="preview-title">Captured Content</span>
-    </div>
+  <!-- Detail View (single page) -->
+  <div class="view" id="detailView">
+    <div class="preview visible" id="preview">
+      <div class="preview-header">
+        <span class="preview-title">Captured Content</span>
+      </div>
 
-    <!-- Stats -->
-    <div class="stats-row">
-      <div class="stat-item">
-        <div class="stat-value" id="htmlSizeStat">-</div>
-        <div class="stat-label">HTML</div>
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-item">
+          <div class="stat-value" id="htmlSizeStat">-</div>
+          <div class="stat-label">HTML</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="textSizeStat">-</div>
+          <div class="stat-label">Text</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="imageSizeStat">-</div>
+          <div class="stat-label">Images</div>
+        </div>
       </div>
-      <div class="stat-item">
-        <div class="stat-value" id="textSizeStat">-</div>
-        <div class="stat-label">Text</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-value" id="imageSizeStat">-</div>
-        <div class="stat-label">Images</div>
-      </div>
-    </div>
 
-    <!-- Title & URL -->
-    <div class="preview-section">
-      <div class="preview-section-header">
-        <span class="preview-section-title">Page Info</span>
+      <!-- Title & URL -->
+      <div class="preview-section">
+        <div class="preview-section-header">
+          <span class="preview-section-title">Page Info</span>
+        </div>
+        <input type="text" class="editable-field" id="editTitle" placeholder="Page title">
+        <input type="text" class="editable-field url-field" id="editUrl" placeholder="URL" style="margin-top: 8px;">
       </div>
-      <input type="text" class="editable-field" id="editTitle" placeholder="Page title">
-      <input type="text" class="editable-field url-field" id="editUrl" placeholder="URL" style="margin-top: 8px;">
-    </div>
 
-    <!-- Text Preview -->
-    <div class="preview-section">
-      <div class="preview-section-header">
-        <span class="preview-section-title">Text Content</span>
-        <span class="preview-section-badge" id="textCharCount">0 chars</span>
+      <!-- Text Preview -->
+      <div class="preview-section">
+        <div class="preview-section-header">
+          <span class="preview-section-title">Text Content</span>
+          <span class="preview-section-badge" id="textCharCount">0 chars</span>
+        </div>
+        <div class="text-preview" id="textPreview"></div>
+        <button class="text-preview-toggle" id="textToggle">Show more</button>
       </div>
-      <div class="text-preview" id="textPreview"></div>
-      <button class="text-preview-toggle" id="textToggle">Show more</button>
-    </div>
 
-    <!-- Images -->
-    <div class="preview-section">
-      <div class="preview-section-header">
-        <span class="preview-section-title">Images</span>
-        <span class="preview-section-badge" id="imageSelectedCount">0 selected</span>
+      <!-- Images -->
+      <div class="preview-section">
+        <div class="preview-section-header">
+          <span class="preview-section-title">Images</span>
+          <span class="preview-section-badge" id="imageSelectedCount">0 selected</span>
+        </div>
+        <div class="image-gallery" id="imageGallery"></div>
       </div>
-      <div class="image-gallery" id="imageGallery"></div>
-    </div>
 
-    <!-- Metadata -->
-    <div class="preview-section" id="metadataSection">
-      <div class="preview-section-header">
-        <span class="preview-section-title">Metadata</span>
+      <!-- Metadata -->
+      <div class="preview-section" id="metadataSection">
+        <div class="preview-section-header">
+          <span class="preview-section-title">Metadata</span>
+        </div>
+        <div class="metadata-list" id="metadataList"></div>
       </div>
-      <div class="metadata-list" id="metadataList"></div>
-    </div>
 
-    <!-- Toggles -->
-    <div class="preview-section">
-      <div class="preview-section-header">
-        <span class="preview-section-title">Include in Export</span>
+      <!-- Toggles -->
+      <div class="preview-section">
+        <div class="preview-section-header">
+          <span class="preview-section-title">Include in Export</span>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">HTML Content</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="includeHtml" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Images</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="includeImages" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
       </div>
-      <div class="toggle-row">
-        <span class="toggle-label">HTML Content</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="includeHtml" checked>
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div class="toggle-row">
-        <span class="toggle-label">Images</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="includeImages" checked>
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-    </div>
 
-    <!-- Action buttons -->
-    <div class="action-buttons">
-      <button class="action-btn primary" id="copyBtn">Copy to Clipboard</button>
-      <button class="action-btn secondary" id="clearBtn">Clear</button>
+      <!-- Action buttons -->
+      <div class="action-buttons">
+        <button class="action-btn primary" id="copyBtn">Copy to Clipboard</button>
+        <button class="action-btn secondary" id="removeBtn">Remove from Bundle</button>
+      </div>
     </div>
   </div>
 
