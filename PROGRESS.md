@@ -1,8 +1,8 @@
 # Chrome Extension Development Progress
 
-## Current Phase: 1 - Basic Capture
+## Current Phase: 2 - Preview UI
 
-## Status: Ready for Testing
+## Status: Complete - Ready for Testing
 
 ---
 
@@ -13,10 +13,12 @@
 - [x] Capture button that extracts page data
 - [ ] Test on various site types (manual testing needed)
 
-### Phase 2: Preview UI
-- [ ] Sidebar/popup panel for preview
-- [ ] Display captured content
-- [ ] Toggle what to include
+### Phase 2: Preview UI ✅
+- [x] Expanded popup (420px) with preview sections
+- [x] Editable title/URL, text preview with expand/collapse
+- [x] Image gallery with include/exclude checkboxes
+- [x] Metadata display, export toggles, copy to clipboard
+- [x] Session storage persistence
 
 ### Phase 3: Screenshots
 - [ ] Viewport screenshot
