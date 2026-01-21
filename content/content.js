@@ -130,7 +130,7 @@ function capturePageContent() {
 }
 
 // Listen for messages from popup
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.action === 'capture') {
     try {
       const data = capturePageContent();
