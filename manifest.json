@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "EventAtlas Capture",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Capture web content for EventAtlas - one-click content capture from any webpage",
   "permissions": [
     "activeTab",
