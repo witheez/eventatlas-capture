@@ -2,17 +2,16 @@
 
 ## Current Phase: 1 - Basic Capture
 
-## Status: In Progress
+## Status: Ready for Testing
 
 ---
 
 ## Phases
 
-### Phase 1: Can We Capture? ⏳
-- [ ] Extension scaffold (manifest.json, popup, content script)
-- [ ] Capture button that extracts page data
-- [ ] Log captured data to console
-- [ ] Test on various site types
+### Phase 1: Can We Capture? ✅
+- [x] Extension scaffold (manifest.json, popup, content script)
+- [x] Capture button that extracts page data
+- [ ] Test on various site types (manual testing needed)
 
 ### Phase 2: Preview UI
 - [ ] Sidebar/popup panel for preview
@@ -38,10 +37,29 @@
 
 | Time | Agent | Task | Status |
 |------|-------|------|--------|
-| 2026-01-21 | scaffold-agent | Create extension scaffold | Running |
+| 2026-01-21 | scaffold-agent | Create extension scaffold | ✅ Complete |
 
 ---
 
-## Files Changed
+## Files Created (Phase 1)
 
-_Updated after each agent completes_
+```
+manifest.json        (+29)  - Manifest V3 config
+popup/popup.html    (+119)  - Amber-themed UI
+popup/popup.js      (+127)  - Popup logic
+content/content.js  (+119)  - Page extraction
+icons/README.md      (+17)  - Placeholder
+README.md           (+103)  - Installation docs
+```
+
+---
+
+## Next Steps
+
+1. **Manual Testing** - Load extension in Chrome, test on:
+   - Static HTML site
+   - React SPA (Eventbrite, etc)
+   - Instagram/Facebook
+   - Sites that fail EventAtlas scraper
+
+2. If capture works well → Phase 2 (Preview UI)
