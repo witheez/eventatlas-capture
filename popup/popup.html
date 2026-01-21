@@ -12,17 +12,20 @@
     }
 
     body {
-      width: 320px;
+      width: 420px;
+      max-height: 600px;
       padding: 16px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       font-size: 14px;
       color: #1f2937;
       background: #ffffff;
+      overflow-y: auto;
     }
 
     .header {
       display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 8px;
       margin-bottom: 16px;
       padding-bottom: 12px;
@@ -32,8 +35,24 @@
     .header h1 {
       font-size: 16px;
       font-weight: 600;
+      color: #f59e0b;
     }
 
+    .header-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      background: #fef3c7;
+      color: #92400e;
+      border-radius: 12px;
+      font-weight: 500;
+    }
+
+    .header-badge.has-capture {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    /* Status section - current page info */
     .status {
       padding: 12px;
       margin-bottom: 16px;
@@ -60,6 +79,7 @@
       overflow: hidden;
     }
 
+    /* Capture button */
     .capture-btn {
       width: 100%;
       padding: 12px 16px;
@@ -90,53 +110,375 @@
       background: #ef4444;
     }
 
-    .result {
+    /* Preview section */
+    .preview {
       margin-top: 16px;
-      padding: 12px;
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
-      border-radius: 8px;
-      font-size: 13px;
       display: none;
     }
 
-    .result.visible {
+    .preview.visible {
       display: block;
     }
 
-    .result.error {
-      background: #fef2f2;
-      border-color: #fecaca;
+    .preview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #fcd34d;
     }
 
-    .result-title {
-      font-weight: 500;
+    .preview-title {
+      font-weight: 600;
+      color: #92400e;
+      font-size: 14px;
+    }
+
+    .preview-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .preview-section {
+      margin-bottom: 16px;
+      padding: 12px;
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+    }
+
+    .preview-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       margin-bottom: 8px;
     }
 
-    .result-item {
-      display: flex;
-      justify-content: space-between;
-      padding: 4px 0;
-      border-bottom: 1px solid #e5e7eb;
+    .preview-section-title {
+      font-weight: 500;
+      font-size: 13px;
+      color: #78350f;
     }
 
-    .result-item:last-child {
-      border-bottom: none;
+    .preview-section-badge {
+      font-size: 11px;
+      padding: 2px 6px;
+      background: #fef3c7;
+      color: #92400e;
+      border-radius: 4px;
     }
 
-    .result-item .label {
+    /* Editable fields */
+    .editable-field {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      resize: none;
+      background: #ffffff;
+    }
+
+    .editable-field:focus {
+      outline: none;
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+    }
+
+    .editable-field.url-field {
+      font-size: 12px;
       color: #6b7280;
     }
 
-    .result-item .value {
+    /* Text preview */
+    .text-preview {
+      font-size: 12px;
+      line-height: 1.5;
+      color: #4b5563;
+      max-height: 100px;
+      overflow: hidden;
+      position: relative;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .text-preview.expanded {
+      max-height: none;
+    }
+
+    .text-preview-toggle {
+      display: block;
+      margin-top: 8px;
+      color: #d97706;
+      font-size: 12px;
+      cursor: pointer;
+      border: none;
+      background: none;
+      padding: 0;
       font-weight: 500;
+    }
+
+    .text-preview-toggle:hover {
+      text-decoration: underline;
+    }
+
+    /* Image gallery */
+    .image-gallery {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .image-item {
+      position: relative;
+      aspect-ratio: 1;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #f3f4f6;
+      cursor: pointer;
+    }
+
+    .image-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .image-item.excluded {
+      opacity: 0.4;
+    }
+
+    .image-item.excluded::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.3);
+    }
+
+    .image-checkbox {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 18px;
+      height: 18px;
+      accent-color: #f59e0b;
+      cursor: pointer;
+    }
+
+    .image-item-error {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: #9ca3af;
+      text-align: center;
+      padding: 4px;
+    }
+
+    /* Metadata section */
+    .metadata-list {
+      font-size: 12px;
+    }
+
+    .metadata-item {
+      display: flex;
+      padding: 4px 0;
+      border-bottom: 1px solid #fde68a;
+    }
+
+    .metadata-item:last-child {
+      border-bottom: none;
+    }
+
+    .metadata-key {
+      color: #92400e;
+      font-weight: 500;
+      min-width: 80px;
+      flex-shrink: 0;
+    }
+
+    .metadata-value {
+      color: #4b5563;
+      word-break: break-word;
+    }
+
+    /* Toggle switches */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+    }
+
+    .toggle-label {
+      font-size: 13px;
+      color: #374151;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 40px;
+      height: 22px;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: #d1d5db;
+      transition: 0.2s;
+      border-radius: 22px;
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: '';
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.2s;
+      border-radius: 50%;
+    }
+
+    .toggle-switch input:checked + .toggle-slider {
+      background-color: #f59e0b;
+    }
+
+    .toggle-switch input:checked + .toggle-slider:before {
+      transform: translateX(18px);
+    }
+
+    /* Action buttons */
+    .action-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .action-btn {
+      flex: 1;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .action-btn.primary {
+      background: #f59e0b;
+      color: #ffffff;
+    }
+
+    .action-btn.primary:hover {
+      background: #d97706;
+    }
+
+    .action-btn.secondary {
+      background: #f3f4f6;
+      color: #374151;
+    }
+
+    .action-btn.secondary:hover {
+      background: #e5e7eb;
+    }
+
+    .action-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Toast notifications */
+    .toast {
+      position: fixed;
+      bottom: 16px;
+      left: 16px;
+      right: 16px;
+      padding: 12px 16px;
+      background: #1f2937;
+      color: #ffffff;
+      border-radius: 8px;
+      font-size: 13px;
+      text-align: center;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+      z-index: 100;
+    }
+
+    .toast.visible {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .toast.success {
+      background: #065f46;
+    }
+
+    .toast.error {
+      background: #991b1b;
+    }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 24px 16px;
+      color: #6b7280;
+    }
+
+    .empty-state-icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    .empty-state-text {
+      font-size: 13px;
+    }
+
+    /* Stats row */
+    .stats-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .stat-item {
+      flex: 1;
+      padding: 8px;
+      background: #fef3c7;
+      border-radius: 6px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-weight: 600;
+      font-size: 14px;
+      color: #78350f;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: #92400e;
     }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>EventAtlas Capture</h1>
+    <span class="header-badge" id="captureBadge">No capture</span>
   </div>
 
   <div class="status">
@@ -149,21 +491,94 @@
     Capture Page
   </button>
 
-  <div class="result" id="result">
-    <div class="result-title">Capture Complete</div>
-    <div class="result-item">
-      <span class="label">HTML Size</span>
-      <span class="value" id="htmlSize">-</span>
+  <!-- Preview Section -->
+  <div class="preview" id="preview">
+    <div class="preview-header">
+      <span class="preview-title">Captured Content</span>
     </div>
-    <div class="result-item">
-      <span class="label">Text Size</span>
-      <span class="value" id="textSize">-</span>
+
+    <!-- Stats -->
+    <div class="stats-row">
+      <div class="stat-item">
+        <div class="stat-value" id="htmlSizeStat">-</div>
+        <div class="stat-label">HTML</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="textSizeStat">-</div>
+        <div class="stat-label">Text</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="imageSizeStat">-</div>
+        <div class="stat-label">Images</div>
+      </div>
     </div>
-    <div class="result-item">
-      <span class="label">Images Found</span>
-      <span class="value" id="imageCount">-</span>
+
+    <!-- Title & URL -->
+    <div class="preview-section">
+      <div class="preview-section-header">
+        <span class="preview-section-title">Page Info</span>
+      </div>
+      <input type="text" class="editable-field" id="editTitle" placeholder="Page title">
+      <input type="text" class="editable-field url-field" id="editUrl" placeholder="URL" style="margin-top: 8px;">
+    </div>
+
+    <!-- Text Preview -->
+    <div class="preview-section">
+      <div class="preview-section-header">
+        <span class="preview-section-title">Text Content</span>
+        <span class="preview-section-badge" id="textCharCount">0 chars</span>
+      </div>
+      <div class="text-preview" id="textPreview"></div>
+      <button class="text-preview-toggle" id="textToggle">Show more</button>
+    </div>
+
+    <!-- Images -->
+    <div class="preview-section">
+      <div class="preview-section-header">
+        <span class="preview-section-title">Images</span>
+        <span class="preview-section-badge" id="imageSelectedCount">0 selected</span>
+      </div>
+      <div class="image-gallery" id="imageGallery"></div>
+    </div>
+
+    <!-- Metadata -->
+    <div class="preview-section" id="metadataSection">
+      <div class="preview-section-header">
+        <span class="preview-section-title">Metadata</span>
+      </div>
+      <div class="metadata-list" id="metadataList"></div>
+    </div>
+
+    <!-- Toggles -->
+    <div class="preview-section">
+      <div class="preview-section-header">
+        <span class="preview-section-title">Include in Export</span>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">HTML Content</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="includeHtml" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Images</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="includeImages" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Action buttons -->
+    <div class="action-buttons">
+      <button class="action-btn primary" id="copyBtn">Copy to Clipboard</button>
+      <button class="action-btn secondary" id="clearBtn">Clear</button>
     </div>
   </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
 
   <script src="popup.js"></script>
 </body>
