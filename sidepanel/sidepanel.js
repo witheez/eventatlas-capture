@@ -14,6 +14,7 @@ const MAX_BUNDLES = 50;
 // Default settings
 const DEFAULT_SETTINGS = {
   autoGroupByDomain: true,
+  captureScreenshotByDefault: false,
 };
 
 // App state
@@ -45,11 +46,15 @@ const backNavText = document.getElementById('backNavText');
 const settingsBtn = document.getElementById('settingsBtn');
 const settingsPanel = document.getElementById('settingsPanel');
 const autoGroupSetting = document.getElementById('autoGroupSetting');
+const screenshotDefaultSetting = document.getElementById('screenshotDefaultSetting');
 
 // DOM Elements - Bundles view
 const pageTitleEl = document.getElementById('pageTitle');
 const pageUrlEl = document.getElementById('pageUrl');
 const captureBtn = document.getElementById('captureBtn');
+const captureBtnGroup = document.getElementById('captureBtnGroup');
+const captureNoScreenshotBtn = document.getElementById('captureNoScreenshotBtn');
+const captureWithScreenshotBtn = document.getElementById('captureWithScreenshotBtn');
 const captureBadge = document.getElementById('captureBadge');
 const bundlesList = document.getElementById('bundlesList');
 const bundlesCount = document.getElementById('bundlesCount');
@@ -80,6 +85,7 @@ const screenshotThumb = document.getElementById('screenshotThumb');
 const screenshotModal = document.getElementById('screenshotModal');
 const screenshotModalClose = document.getElementById('screenshotModalClose');
 const screenshotModalImg = document.getElementById('screenshotModalImg');
+const addScreenshotBtn = document.getElementById('addScreenshotBtn');
 const textPreview = document.getElementById('textPreview');
 const textCharCount = document.getElementById('textCharCount');
 const textToggle = document.getElementById('textToggle');
@@ -282,6 +288,21 @@ function getBundleById(id) {
  */
 function getCurrentBundle() {
   return currentBundleId ? getBundleById(currentBundleId) : null;
+}
+
+/**
+ * Update capture buttons visibility based on screenshot default setting
+ */
+function updateCaptureButtonsVisibility() {
+  if (settings.captureScreenshotByDefault) {
+    // Show single button (captures with screenshot)
+    captureBtn.style.display = 'block';
+    captureBtnGroup.style.display = 'none';
+  } else {
+    // Show two buttons (capture without/with screenshot)
+    captureBtn.style.display = 'none';
+    captureBtnGroup.style.display = 'flex';
+  }
 }
 
 /**
@@ -1128,11 +1149,46 @@ async function captureScreenshot(windowId) {
 }
 
 /**
- * Capture page content
+ * Set capture buttons state (disabled/enabled and text)
  */
-async function capturePage() {
-  captureBtn.disabled = true;
-  captureBtn.textContent = 'Capturing...';
+function setCaptureButtonsState(disabled, text) {
+  // Single button (screenshot default ON)
+  captureBtn.disabled = disabled;
+  captureBtn.textContent = text;
+
+  // Dual buttons (screenshot default OFF)
+  captureNoScreenshotBtn.disabled = disabled;
+  captureWithScreenshotBtn.disabled = disabled;
+
+  if (text !== 'Capture Page') {
+    // Update button text for both modes
+    captureNoScreenshotBtn.innerHTML = `<span class="capture-btn-icon">📄</span> ${text}`;
+  } else {
+    captureNoScreenshotBtn.innerHTML = '<span class="capture-btn-icon">📄</span> Capture Page';
+  }
+}
+
+/**
+ * Add/remove class from all capture buttons
+ */
+function setCaptureButtonsClass(className, add) {
+  if (add) {
+    captureBtn.classList.add(className);
+    captureNoScreenshotBtn.classList.add(className);
+    captureWithScreenshotBtn.classList.add(className);
+  } else {
+    captureBtn.classList.remove(className);
+    captureNoScreenshotBtn.classList.remove(className);
+    captureWithScreenshotBtn.classList.remove(className);
+  }
+}
+
+/**
+ * Capture page content
+ * @param {boolean} includeScreenshot - Whether to capture a screenshot
+ */
+async function capturePage(includeScreenshot = true) {
+  setCaptureButtonsState(true, 'Capturing...');
   hideErrorMessage();
   hideDuplicateDialog();
 
@@ -1151,13 +1207,12 @@ async function capturePage() {
     // Send message to content script for page content
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'capture' });
 
-    // Capture screenshot (runs in parallel conceptually, but after content capture)
-    // Screenshot may fail for some pages (e.g., chrome:// pages) but that's OK
-    const screenshot = await captureScreenshot(tab.windowId);
-
-    // Add screenshot to response if captured
-    if (screenshot) {
-      response.screenshot = screenshot;
+    // Capture screenshot if requested
+    if (includeScreenshot) {
+      const screenshot = await captureScreenshot(tab.windowId);
+      if (screenshot) {
+        response.screenshot = screenshot;
+      }
     }
 
     if (response.error) {
@@ -1178,8 +1233,7 @@ async function capturePage() {
       const bundleName = settings.autoGroupByDomain ? domain : `Bundle ${bundles.length + 1}`;
       targetBundle = createBundle(bundleName);
       if (!targetBundle) {
-        captureBtn.textContent = 'Capture Page';
-        captureBtn.disabled = false;
+        setCaptureButtonsState(false, 'Capture Page');
         return;
       }
     }
@@ -1197,8 +1251,7 @@ async function capturePage() {
       };
       showDuplicateDialog(existingPage.editedTitle || existingPage.title);
 
-      captureBtn.textContent = 'Capture Page';
-      captureBtn.disabled = false;
+      setCaptureButtonsState(false, 'Capture Page');
       return;
     }
 
@@ -1206,19 +1259,17 @@ async function capturePage() {
     const success = await addCaptureToBundle(targetBundle.id, response);
 
     if (success) {
-      captureBtn.textContent = 'Added!';
-      captureBtn.classList.add('success');
+      setCaptureButtonsState(true, 'Added!');
+      setCaptureButtonsClass('success', true);
       const totalPages = bundles.reduce((sum, b) => sum + (b.pages?.length || 0), 0);
       showToast(`Added to "${targetBundle.name}" (${totalPages} total page${totalPages !== 1 ? 's' : ''})`, 'success');
 
       setTimeout(() => {
-        captureBtn.textContent = 'Capture Page';
-        captureBtn.classList.remove('success');
-        captureBtn.disabled = false;
+        setCaptureButtonsState(false, 'Capture Page');
+        setCaptureButtonsClass('success', false);
       }, 1500);
     } else {
-      captureBtn.textContent = 'Capture Page';
-      captureBtn.disabled = false;
+      setCaptureButtonsState(false, 'Capture Page');
     }
   } catch (err) {
     console.error('Capture error:', err);
@@ -1233,14 +1284,65 @@ async function capturePage() {
       showToast(err.message, 'error');
     }
 
-    captureBtn.textContent = 'Retry';
-    captureBtn.classList.add('error');
+    setCaptureButtonsState(true, 'Retry');
+    setCaptureButtonsClass('error', true);
 
     setTimeout(() => {
-      captureBtn.textContent = 'Capture Page';
-      captureBtn.classList.remove('error');
-      captureBtn.disabled = false;
+      setCaptureButtonsState(false, 'Capture Page');
+      setCaptureButtonsClass('error', false);
     }, 2000);
+  }
+}
+
+/**
+ * Add screenshot to the current capture in detail view
+ */
+async function addScreenshotToCurrentCapture() {
+  const bundle = getCurrentBundle();
+  if (!bundle || currentPageIndex === null || currentPageIndex >= bundle.pages.length) {
+    showToast('No capture selected', 'error');
+    return;
+  }
+
+  const capture = bundle.pages[currentPageIndex];
+
+  // Already has screenshot
+  if (capture.screenshot) {
+    showToast('Screenshot already exists', 'error');
+    return;
+  }
+
+  // Disable button while capturing
+  addScreenshotBtn.disabled = true;
+  addScreenshotBtn.innerHTML = '<span class="capture-btn-icon">📸</span> Capturing...';
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (!tab?.windowId) {
+      throw new Error('No active tab found');
+    }
+
+    const screenshot = await captureScreenshot(tab.windowId);
+
+    if (!screenshot) {
+      throw new Error('Failed to capture screenshot');
+    }
+
+    // Add screenshot to capture
+    capture.screenshot = screenshot;
+    await saveToStorage();
+
+    // Update the detail view
+    renderScreenshot(capture);
+
+    showToast('Screenshot added', 'success');
+  } catch (err) {
+    console.error('Add screenshot error:', err);
+    showToast(err.message || 'Failed to add screenshot', 'error');
+  } finally {
+    addScreenshotBtn.disabled = false;
+    addScreenshotBtn.innerHTML = '<span class="capture-btn-icon">📸</span> Add Screenshot';
   }
 }
 
@@ -1313,8 +1415,19 @@ autoGroupSetting.addEventListener('change', async () => {
   await saveToStorage();
 });
 
+screenshotDefaultSetting.addEventListener('change', async () => {
+  settings.captureScreenshotByDefault = screenshotDefaultSetting.checked;
+  await saveToStorage();
+  updateCaptureButtonsVisibility();
+});
+
 // Event Listeners - Bundles view
-captureBtn.addEventListener('click', capturePage);
+// Single button (when screenshot default is ON) - always captures with screenshot
+captureBtn.addEventListener('click', () => capturePage(true));
+
+// Dual buttons (when screenshot default is OFF)
+captureNoScreenshotBtn.addEventListener('click', () => capturePage(false));
+captureWithScreenshotBtn.addEventListener('click', () => capturePage(true));
 newBundleBtn.addEventListener('click', async () => {
   const name = `Bundle ${bundles.length + 1}`;
   const newBundle = createBundle(name);
@@ -1342,6 +1455,7 @@ backNav.addEventListener('click', () => {
 // Event Listeners - Detail view
 copyBtn.addEventListener('click', copySingleToClipboard);
 removeBtn.addEventListener('click', removeCurrentFromBundle);
+addScreenshotBtn.addEventListener('click', addScreenshotToCurrentCapture);
 
 textToggle.addEventListener('click', () => {
   const bundle = getCurrentBundle();
@@ -1423,6 +1537,10 @@ async function init() {
 
   // Apply settings to UI
   autoGroupSetting.checked = settings.autoGroupByDomain;
+  screenshotDefaultSetting.checked = settings.captureScreenshotByDefault;
+
+  // Update capture button visibility based on setting
+  updateCaptureButtonsVisibility();
 
   renderBundlesList();
 }
