@@ -3,6 +3,7 @@
  *
  * Handles side panel UI interactions, preview display, and bundle storage
  * for captured page data. Supports multi-page bundling with persistence.
+ * Uses accordion-style bundles with drag-and-drop between bundles.
  */
 
 // Storage keys
@@ -16,10 +17,10 @@ const DEFAULT_SETTINGS = {
 };
 
 // App state
-let bundles = []; // Array of { id, name, pages[], createdAt }
+let bundles = []; // Array of { id, name, pages[], createdAt, expanded }
 let settings = { ...DEFAULT_SETTINGS };
 
-// Current view state: 'bundles', 'pages', 'detail'
+// Current view state: 'bundles', 'detail'
 let currentView = 'bundles';
 let currentBundleId = null;
 let currentPageIndex = null;
@@ -31,9 +32,11 @@ let textExpanded = false;
 // Pending capture for duplicate handling
 let pendingCapture = null;
 
+// Drag and drop state
+let draggedPage = null; // { bundleId, pageIndex }
+
 // DOM Elements - Views
 const bundlesView = document.getElementById('bundlesView');
-const pagesView = document.getElementById('pagesView');
 const detailView = document.getElementById('detailView');
 const backNav = document.getElementById('backNav');
 const backNavText = document.getElementById('backNavText');
@@ -52,13 +55,6 @@ const bundlesList = document.getElementById('bundlesList');
 const bundlesCount = document.getElementById('bundlesCount');
 const newBundleBtn = document.getElementById('newBundleBtn');
 const clearAllBundlesBtn = document.getElementById('clearAllBundlesBtn');
-
-// DOM Elements - Pages view
-const currentBundleName = document.getElementById('currentBundleName');
-const pagesList = document.getElementById('pagesList');
-const pagesCount = document.getElementById('pagesCount');
-const copyBundleBtn = document.getElementById('copyBundleBtn');
-const deleteBundleBtn = document.getElementById('deleteBundleBtn');
 
 // DOM Elements - Error/Dialog
 const errorMessageEl = document.getElementById('errorMessage');
@@ -232,6 +228,7 @@ async function loadFromStorage() {
             name: domain,
             pages: pages,
             createdAt: new Date().toISOString(),
+            expanded: false,
           });
         });
       } else {
@@ -279,31 +276,23 @@ function getCurrentBundle() {
 }
 
 /**
- * Switch between views: 'bundles', 'pages', 'detail'
+ * Switch between views: 'bundles', 'detail'
  */
 function switchView(view) {
   currentView = view;
 
   // Hide all views
   bundlesView.classList.remove('active');
-  pagesView.classList.remove('active');
   detailView.classList.remove('active');
   backNav.classList.remove('visible');
 
   if (view === 'bundles') {
     bundlesView.classList.add('active');
-    currentBundleId = null;
-    currentPageIndex = null;
-  } else if (view === 'pages') {
-    pagesView.classList.add('active');
-    backNav.classList.add('visible');
-    backNavText.textContent = 'Back to Bundles';
     currentPageIndex = null;
   } else if (view === 'detail') {
     detailView.classList.add('active');
     backNav.classList.add('visible');
-    const bundle = getCurrentBundle();
-    backNavText.textContent = `Back to ${bundle?.name || 'Bundle'}`;
+    backNavText.textContent = 'Back to Bundles';
   }
 }
 
@@ -322,7 +311,28 @@ function updateBadge() {
 }
 
 /**
- * Render the bundles list (View 1)
+ * Toggle bundle accordion
+ */
+function toggleBundleExpanded(bundleId) {
+  const bundle = getBundleById(bundleId);
+  if (bundle) {
+    bundle.expanded = !bundle.expanded;
+    saveToStorage();
+    renderBundlesList();
+  }
+}
+
+/**
+ * Clear all children from an element
+ */
+function clearChildren(element) {
+  while (element.firstChild) {
+    element.removeChild(element.firstChild);
+  }
+}
+
+/**
+ * Render the bundles list with accordion (Main View)
  */
 function renderBundlesList() {
   clearChildren(bundlesList);
@@ -340,144 +350,271 @@ function renderBundlesList() {
   }
 
   bundles.forEach((bundle) => {
-    const card = document.createElement('div');
-    card.className = 'bundle-card';
-
-    // Icon
-    const icon = document.createElement('div');
-    icon.className = 'bundle-card-icon';
-    icon.textContent = '📁';
-
-    // Info
-    const info = document.createElement('div');
-    info.className = 'bundle-card-info';
-
-    const name = document.createElement('div');
-    name.className = 'bundle-card-name';
-    name.textContent = bundle.name || 'Unnamed Bundle';
-
-    const meta = document.createElement('div');
-    meta.className = 'bundle-card-meta';
-    const pageCount = bundle.pages?.length || 0;
-    meta.textContent = `${pageCount} page${pageCount !== 1 ? 's' : ''}`;
-
-    info.appendChild(name);
-    info.appendChild(meta);
-
-    // Remove button
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'bundle-card-remove';
-    removeBtn.innerHTML = '&times;';
-    removeBtn.title = 'Delete bundle';
-    removeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      deleteBundle(bundle.id);
-    });
-
-    // Click to view pages
-    card.addEventListener('click', () => {
-      viewBundlePages(bundle.id);
-    });
-
-    card.appendChild(icon);
-    card.appendChild(info);
-    card.appendChild(removeBtn);
-    bundlesList.appendChild(card);
+    const accordionBundle = createAccordionBundle(bundle);
+    bundlesList.appendChild(accordionBundle);
   });
 }
 
 /**
- * View pages in a bundle (View 2)
+ * Create an accordion bundle element
  */
-function viewBundlePages(bundleId) {
-  const bundle = getBundleById(bundleId);
-  if (!bundle) return;
+function createAccordionBundle(bundle) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'accordion-bundle' + (bundle.expanded ? ' expanded' : '');
+  wrapper.dataset.bundleId = bundle.id;
 
-  currentBundleId = bundleId;
-  currentBundleName.textContent = bundle.name || 'Unnamed Bundle';
-  renderPagesList(bundle);
-  switchView('pages');
+  // Header
+  const header = document.createElement('div');
+  header.className = 'accordion-header';
+
+  // Chevron
+  const chevron = document.createElement('span');
+  chevron.className = 'accordion-chevron';
+  chevron.innerHTML = '&#9654;'; // ▶
+
+  // Icon
+  const icon = document.createElement('span');
+  icon.className = 'accordion-icon';
+  icon.textContent = '📁';
+
+  // Info
+  const info = document.createElement('div');
+  info.className = 'accordion-info';
+
+  const name = document.createElement('div');
+  name.className = 'accordion-name';
+  name.textContent = bundle.name || 'Unnamed Bundle';
+
+  const meta = document.createElement('div');
+  meta.className = 'accordion-meta';
+  const pageCount = bundle.pages?.length || 0;
+  meta.textContent = `${pageCount} page${pageCount !== 1 ? 's' : ''}`;
+
+  info.appendChild(name);
+  info.appendChild(meta);
+
+  // Actions
+  const actions = document.createElement('div');
+  actions.className = 'accordion-actions';
+
+  // Copy button
+  const copyBundleBtn = document.createElement('button');
+  copyBundleBtn.className = 'accordion-action-btn';
+  copyBundleBtn.innerHTML = '&#128203;'; // 📋
+  copyBundleBtn.title = 'Copy bundle to clipboard';
+  copyBundleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    copyBundleToClipboard(bundle.id);
+  });
+
+  // Delete button
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'accordion-action-btn delete';
+  deleteBtn.innerHTML = '&times;';
+  deleteBtn.title = 'Delete bundle';
+  deleteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    deleteBundle(bundle.id);
+  });
+
+  actions.appendChild(copyBundleBtn);
+  actions.appendChild(deleteBtn);
+
+  header.appendChild(chevron);
+  header.appendChild(icon);
+  header.appendChild(info);
+  header.appendChild(actions);
+
+  // Click header to toggle
+  header.addEventListener('click', () => {
+    toggleBundleExpanded(bundle.id);
+  });
+
+  // Content (pages)
+  const content = document.createElement('div');
+  content.className = 'accordion-content';
+
+  const pagesContainer = document.createElement('div');
+  pagesContainer.className = 'accordion-pages';
+
+  const pages = bundle.pages || [];
+  if (pages.length === 0) {
+    const emptyEl = document.createElement('div');
+    emptyEl.className = 'accordion-empty';
+    emptyEl.textContent = 'No pages in this bundle yet.';
+    pagesContainer.appendChild(emptyEl);
+  } else {
+    pages.forEach((capture, index) => {
+      const pageItem = createAccordionPageItem(bundle.id, capture, index);
+      pagesContainer.appendChild(pageItem);
+    });
+  }
+
+  content.appendChild(pagesContainer);
+
+  wrapper.appendChild(header);
+  wrapper.appendChild(content);
+
+  // Drop zone for the bundle (header is the drop target)
+  setupBundleDropZone(wrapper, bundle.id);
+
+  return wrapper;
 }
 
 /**
- * Render pages list for current bundle
+ * Create a page item within an accordion bundle
  */
-function renderPagesList(bundle) {
-  clearChildren(pagesList);
+function createAccordionPageItem(bundleId, capture, index) {
+  const item = document.createElement('div');
+  item.className = 'accordion-page';
+  item.draggable = true;
+  item.dataset.bundleId = bundleId;
+  item.dataset.pageIndex = index;
 
-  const pages = bundle.pages || [];
-  const count = pages.length;
-  pagesCount.textContent = `${count} page${count !== 1 ? 's' : ''} captured`;
+  // Drag handle
+  const dragHandle = document.createElement('span');
+  dragHandle.className = 'accordion-page-drag';
+  dragHandle.innerHTML = '&#8942;&#8942;'; // ⋮⋮
 
-  if (count === 0) {
-    const emptyEl = document.createElement('div');
-    emptyEl.className = 'bundle-empty';
-    emptyEl.textContent = 'No pages in this bundle yet.';
-    pagesList.appendChild(emptyEl);
+  // Thumbnail
+  const thumb = document.createElement('div');
+  thumb.className = 'accordion-page-thumb';
+
+  const thumbUrl = capture.images?.[0] || capture.selectedImages?.[0];
+  if (thumbUrl) {
+    const img = document.createElement('img');
+    img.src = thumbUrl;
+    img.alt = '';
+    img.onerror = () => {
+      thumb.textContent = '📄';
+    };
+    thumb.appendChild(img);
+  } else {
+    thumb.textContent = '📄';
+  }
+
+  // Info
+  const info = document.createElement('div');
+  info.className = 'accordion-page-info';
+
+  const title = document.createElement('div');
+  title.className = 'accordion-page-title';
+  title.textContent = capture.editedTitle || capture.title || 'Untitled';
+
+  const domain = document.createElement('div');
+  domain.className = 'accordion-page-domain';
+  domain.textContent = getDomain(capture.editedUrl || capture.url || '');
+
+  info.appendChild(title);
+  info.appendChild(domain);
+
+  // Remove button
+  const removeBtnEl = document.createElement('button');
+  removeBtnEl.className = 'accordion-page-remove';
+  removeBtnEl.innerHTML = '&times;';
+  removeBtnEl.title = 'Remove from bundle';
+  removeBtnEl.addEventListener('click', (e) => {
+    e.stopPropagation();
+    removePageFromBundle(bundleId, index);
+  });
+
+  // Click to view details
+  item.addEventListener('click', (e) => {
+    if (e.target.closest('.accordion-page-remove') || e.target.closest('.accordion-page-drag')) {
+      return;
+    }
+    currentBundleId = bundleId;
+    viewPageDetail(index);
+  });
+
+  // Drag events
+  item.addEventListener('dragstart', (e) => {
+    draggedPage = { bundleId, pageIndex: index };
+    item.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', JSON.stringify({ bundleId, pageIndex: index }));
+  });
+
+  item.addEventListener('dragend', () => {
+    item.classList.remove('dragging');
+    draggedPage = null;
+    // Remove all drag-over highlights
+    document.querySelectorAll('.accordion-bundle.drag-over').forEach((el) => {
+      el.classList.remove('drag-over');
+    });
+  });
+
+  item.appendChild(dragHandle);
+  item.appendChild(thumb);
+  item.appendChild(info);
+  item.appendChild(removeBtnEl);
+
+  return item;
+}
+
+/**
+ * Setup drag and drop zone for a bundle
+ */
+function setupBundleDropZone(bundleElement, bundleId) {
+  bundleElement.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (draggedPage && draggedPage.bundleId !== bundleId) {
+      bundleElement.classList.add('drag-over');
+      e.dataTransfer.dropEffect = 'move';
+    }
+  });
+
+  bundleElement.addEventListener('dragleave', (e) => {
+    // Only remove if we're actually leaving the bundle element
+    if (!bundleElement.contains(e.relatedTarget)) {
+      bundleElement.classList.remove('drag-over');
+    }
+  });
+
+  bundleElement.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    bundleElement.classList.remove('drag-over');
+
+    if (!draggedPage) return;
+
+    const { bundleId: sourceBundleId, pageIndex } = draggedPage;
+    if (sourceBundleId === bundleId) return; // Same bundle, no move needed
+
+    // Move page from source to target bundle
+    await movePageBetweenBundles(sourceBundleId, pageIndex, bundleId);
+    draggedPage = null;
+  });
+}
+
+/**
+ * Move a page from one bundle to another
+ */
+async function movePageBetweenBundles(sourceBundleId, pageIndex, targetBundleId) {
+  const sourceBundle = getBundleById(sourceBundleId);
+  const targetBundle = getBundleById(targetBundleId);
+
+  if (!sourceBundle || !targetBundle) return;
+
+  // Check target bundle limit
+  if (targetBundle.pages.length >= MAX_BUNDLE_PAGES) {
+    showToast(`Target bundle is full (${MAX_BUNDLE_PAGES} pages max)`, 'error');
     return;
   }
 
-  pages.forEach((capture, index) => {
-    const item = document.createElement('div');
-    item.className = 'bundle-item';
+  // Remove from source and add to target
+  const page = sourceBundle.pages.splice(pageIndex, 1)[0];
+  targetBundle.pages.push(page);
 
-    // Thumbnail
-    const thumb = document.createElement('div');
-    thumb.className = 'bundle-item-thumb';
+  // Expand target bundle to show the moved page
+  targetBundle.expanded = true;
 
-    // Try to use first image as thumbnail
-    const thumbUrl = capture.images?.[0] || capture.selectedImages?.[0];
-    if (thumbUrl) {
-      const img = document.createElement('img');
-      img.src = thumbUrl;
-      img.alt = '';
-      img.onerror = () => {
-        thumb.textContent = '📄';
-      };
-      thumb.appendChild(img);
-    } else {
-      thumb.textContent = '📄';
-    }
-
-    // Info
-    const info = document.createElement('div');
-    info.className = 'bundle-item-info';
-
-    const title = document.createElement('div');
-    title.className = 'bundle-item-title';
-    title.textContent = capture.editedTitle || capture.title || 'Untitled';
-
-    const domain = document.createElement('div');
-    domain.className = 'bundle-item-domain';
-    domain.textContent = getDomain(capture.editedUrl || capture.url || '');
-
-    info.appendChild(title);
-    info.appendChild(domain);
-
-    // Remove button
-    const removeBtnEl = document.createElement('button');
-    removeBtnEl.className = 'bundle-item-remove';
-    removeBtnEl.innerHTML = '&times;';
-    removeBtnEl.title = 'Remove from bundle';
-    removeBtnEl.addEventListener('click', (e) => {
-      e.stopPropagation();
-      removePageFromBundle(bundle.id, index);
-    });
-
-    // Click to view details
-    item.addEventListener('click', () => {
-      viewPageDetail(index);
-    });
-
-    item.appendChild(thumb);
-    item.appendChild(info);
-    item.appendChild(removeBtnEl);
-    pagesList.appendChild(item);
-  });
+  await saveToStorage();
+  renderBundlesList();
+  showToast(`Moved to "${targetBundle.name}"`, 'success');
 }
 
 /**
- * View page detail (View 3)
+ * View page detail
  */
 function viewPageDetail(index) {
   const bundle = getCurrentBundle();
@@ -551,15 +688,6 @@ function renderDetailPreview(capture) {
 
   // Metadata
   renderMetadata(capture);
-}
-
-/**
- * Clear all children from an element
- */
-function clearChildren(element) {
-  while (element.firstChild) {
-    element.removeChild(element.firstChild);
-  }
 }
 
 /**
@@ -745,10 +873,10 @@ async function copySingleToClipboard() {
 }
 
 /**
- * Copy current bundle to clipboard
+ * Copy bundle to clipboard by bundle ID
  */
-async function copyBundleToClipboard() {
-  const bundle = getCurrentBundle();
+async function copyBundleToClipboard(bundleId) {
+  const bundle = getBundleById(bundleId);
   if (!bundle || bundle.pages.length === 0) {
     showToast('No pages in bundle', 'error');
     return;
@@ -776,18 +904,14 @@ async function removePageFromBundle(bundleId, index) {
   const removed = bundle.pages.splice(index, 1)[0];
   await saveToStorage();
 
-  // If we're viewing the removed item, go back to pages list
-  if (currentView === 'detail' && currentPageIndex === index) {
-    switchView('pages');
-    renderPagesList(bundle);
-  } else if (currentView === 'detail' && currentPageIndex > index) {
+  // If we're viewing the removed item in detail view, go back to bundles
+  if (currentView === 'detail' && currentBundleId === bundleId && currentPageIndex === index) {
+    switchView('bundles');
+  } else if (currentView === 'detail' && currentBundleId === bundleId && currentPageIndex > index) {
     // Adjust index if we removed something before current view
     currentPageIndex--;
   }
 
-  if (currentView === 'pages') {
-    renderPagesList(bundle);
-  }
   renderBundlesList();
   showToast(`Removed "${removed.title || 'page'}" from bundle`, 'success');
 }
@@ -811,7 +935,7 @@ async function deleteBundle(bundleId) {
   const removed = bundles.splice(index, 1)[0];
   await saveToStorage();
 
-  // If viewing pages or detail of deleted bundle, go back to bundles list
+  // If viewing detail of deleted bundle, go back to bundles list
   if (currentBundleId === bundleId) {
     switchView('bundles');
   }
@@ -871,6 +995,7 @@ function createBundle(name) {
     name: name || `Bundle ${bundles.length + 1}`,
     pages: [],
     createdAt: new Date().toISOString(),
+    expanded: true, // Start expanded
   };
 
   bundles.push(newBundle);
@@ -903,6 +1028,9 @@ async function addCaptureToBundle(bundleId, capture, replaceIndex = -1) {
     }
     bundle.pages.push(captureData);
   }
+
+  // Expand the bundle to show the new page
+  bundle.expanded = true;
 
   await saveToStorage();
   renderBundlesList();
@@ -1058,7 +1186,7 @@ function handleDuplicateSkip() {
 }
 
 /**
- * Move page to another bundle
+ * Move page to another bundle (from detail view dropdown)
  */
 async function movePageToBundle(targetBundleId) {
   if (!targetBundleId || !currentBundleId || currentPageIndex === null) return;
@@ -1077,11 +1205,13 @@ async function movePageToBundle(targetBundleId) {
   const page = sourceBundle.pages.splice(currentPageIndex, 1)[0];
   targetBundle.pages.push(page);
 
+  // Expand target bundle
+  targetBundle.expanded = true;
+
   await saveToStorage();
 
-  // Go back to pages view
-  switchView('pages');
-  renderPagesList(sourceBundle);
+  // Go back to bundles view
+  switchView('bundles');
   renderBundlesList();
 
   showToast(`Moved to "${targetBundle.name}"`, 'success');
@@ -1111,14 +1241,6 @@ newBundleBtn.addEventListener('click', async () => {
 });
 clearAllBundlesBtn.addEventListener('click', clearAllBundles);
 
-// Event Listeners - Pages view
-copyBundleBtn.addEventListener('click', copyBundleToClipboard);
-deleteBundleBtn.addEventListener('click', () => {
-  if (currentBundleId) {
-    deleteBundle(currentBundleId);
-  }
-});
-
 // Event Listeners - Duplicate dialog
 duplicateReplace.addEventListener('click', handleDuplicateReplace);
 duplicateSkip.addEventListener('click', handleDuplicateSkip);
@@ -1127,12 +1249,6 @@ duplicateSkip.addEventListener('click', handleDuplicateSkip);
 backNav.addEventListener('click', () => {
   if (currentView === 'detail') {
     saveCurrentDetail();
-    const bundle = getCurrentBundle();
-    if (bundle) {
-      renderPagesList(bundle);
-    }
-    switchView('pages');
-  } else if (currentView === 'pages') {
     switchView('bundles');
     renderBundlesList();
   }

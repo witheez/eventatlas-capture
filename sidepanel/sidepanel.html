@@ -84,172 +84,6 @@
       font-weight: 500;
     }
 
-    /* Bundle section */
-    .bundle-section {
-      margin-bottom: 16px;
-      padding: 12px;
-      background: #fef3c7;
-      border: 1px solid #fcd34d;
-      border-radius: 8px;
-    }
-
-    .bundle-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 8px;
-    }
-
-    .bundle-title {
-      font-weight: 600;
-      font-size: 14px;
-      color: #78350f;
-    }
-
-    .bundle-count {
-      font-size: 12px;
-      color: #92400e;
-    }
-
-    .bundle-actions {
-      display: flex;
-      gap: 8px;
-    }
-
-    .bundle-action-btn {
-      padding: 4px 8px;
-      font-size: 11px;
-      font-weight: 500;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: background 0.15s ease;
-    }
-
-    .bundle-action-btn.primary {
-      background: #f59e0b;
-      color: #ffffff;
-    }
-
-    .bundle-action-btn.primary:hover {
-      background: #d97706;
-    }
-
-    .bundle-action-btn.secondary {
-      background: #ffffff;
-      color: #78350f;
-      border: 1px solid #fcd34d;
-    }
-
-    .bundle-action-btn.secondary:hover {
-      background: #fef3c7;
-    }
-
-    .bundle-action-btn.danger {
-      background: #fef2f2;
-      color: #991b1b;
-      border: 1px solid #fecaca;
-    }
-
-    .bundle-action-btn.danger:hover {
-      background: #fee2e2;
-    }
-
-    /* Bundle list */
-    .bundle-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      margin-top: 12px;
-    }
-
-    .bundle-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px;
-      background: #ffffff;
-      border: 1px solid #e5e7eb;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: border-color 0.15s ease, box-shadow 0.15s ease;
-    }
-
-    .bundle-item:hover {
-      border-color: #f59e0b;
-      box-shadow: 0 1px 3px rgba(245, 158, 11, 0.2);
-    }
-
-    .bundle-item-thumb {
-      width: 40px;
-      height: 40px;
-      background: #f3f4f6;
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-      color: #9ca3af;
-      flex-shrink: 0;
-      overflow: hidden;
-    }
-
-    .bundle-item-thumb img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    .bundle-item-info {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .bundle-item-title {
-      font-size: 13px;
-      font-weight: 500;
-      color: #1f2937;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .bundle-item-domain {
-      font-size: 11px;
-      color: #6b7280;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .bundle-item-remove {
-      width: 24px;
-      height: 24px;
-      border: none;
-      background: transparent;
-      color: #9ca3af;
-      cursor: pointer;
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 16px;
-      transition: background 0.15s ease, color 0.15s ease;
-      flex-shrink: 0;
-    }
-
-    .bundle-item-remove:hover {
-      background: #fee2e2;
-      color: #dc2626;
-    }
-
-    .bundle-empty {
-      text-align: center;
-      padding: 16px;
-      color: #6b7280;
-      font-size: 13px;
-    }
-
     /* Status section - current page info */
     .status {
       padding: 12px;
@@ -364,7 +198,491 @@
       gap: 8px;
     }
 
-    /* Preview section */
+    /* Bundle section */
+    .bundle-section {
+      margin-top: 16px;
+      margin-bottom: 16px;
+    }
+
+    .bundle-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .bundle-section-title {
+      font-weight: 600;
+      font-size: 14px;
+      color: #374151;
+    }
+
+    .bundle-section-count {
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    .bundle-action-btn {
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .bundle-action-btn.primary {
+      background: #f59e0b;
+      color: #ffffff;
+    }
+
+    .bundle-action-btn.primary:hover {
+      background: #d97706;
+    }
+
+    .bundle-action-btn.secondary {
+      background: #ffffff;
+      color: #78350f;
+      border: 1px solid #fcd34d;
+    }
+
+    .bundle-action-btn.secondary:hover {
+      background: #fef3c7;
+    }
+
+    .bundle-action-btn.danger {
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+
+    .bundle-action-btn.danger:hover {
+      background: #fee2e2;
+    }
+
+    /* Accordion bundles */
+    .accordion-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .accordion-bundle {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #ffffff;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .accordion-bundle.drag-over {
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3);
+      background: #fffbeb;
+    }
+
+    .accordion-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      background: #fef3c7;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s ease;
+    }
+
+    .accordion-header:hover {
+      background: #fde68a;
+    }
+
+    .accordion-chevron {
+      font-size: 12px;
+      color: #92400e;
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .accordion-bundle.expanded .accordion-chevron {
+      transform: rotate(90deg);
+    }
+
+    .accordion-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .accordion-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .accordion-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: #78350f;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .accordion-meta {
+      font-size: 11px;
+      color: #92400e;
+    }
+
+    .accordion-actions {
+      display: flex;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .accordion-action-btn {
+      width: 24px;
+      height: 24px;
+      border: none;
+      background: rgba(255, 255, 255, 0.6);
+      color: #78350f;
+      cursor: pointer;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .accordion-action-btn:hover {
+      background: #ffffff;
+    }
+
+    .accordion-action-btn.delete:hover {
+      background: #fee2e2;
+      color: #dc2626;
+    }
+
+    .accordion-content {
+      display: none;
+      padding: 0;
+      background: #ffffff;
+    }
+
+    .accordion-bundle.expanded .accordion-content {
+      display: block;
+    }
+
+    /* Pages inside accordion */
+    .accordion-pages {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .accordion-page {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px 10px 36px;
+      border-top: 1px solid #f3f4f6;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .accordion-page:hover {
+      background: #f9fafb;
+    }
+
+    .accordion-page.dragging {
+      opacity: 0.5;
+      background: #fef3c7;
+    }
+
+    .accordion-page-thumb {
+      width: 36px;
+      height: 36px;
+      background: #f3f4f6;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      color: #9ca3af;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    .accordion-page-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .accordion-page-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .accordion-page-title {
+      font-size: 12px;
+      font-weight: 500;
+      color: #1f2937;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .accordion-page-domain {
+      font-size: 11px;
+      color: #6b7280;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .accordion-page-remove {
+      width: 22px;
+      height: 22px;
+      border: none;
+      background: transparent;
+      color: #9ca3af;
+      cursor: pointer;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      transition: background 0.15s ease, color 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .accordion-page-remove:hover {
+      background: #fee2e2;
+      color: #dc2626;
+    }
+
+    .accordion-page-drag {
+      width: 18px;
+      height: 18px;
+      color: #d1d5db;
+      cursor: grab;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+
+    .accordion-page-drag:active {
+      cursor: grabbing;
+    }
+
+    .accordion-empty {
+      padding: 16px 12px 16px 36px;
+      text-align: center;
+      color: #9ca3af;
+      font-size: 12px;
+      border-top: 1px solid #f3f4f6;
+    }
+
+    /* New bundle button */
+    .new-bundle-btn-large {
+      width: 100%;
+      padding: 14px 16px;
+      margin-top: 12px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #78350f;
+      background: transparent;
+      border: 2px dashed #fcd34d;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .new-bundle-btn-large:hover {
+      background: #fffbeb;
+      border-color: #f59e0b;
+    }
+
+    .bundles-empty {
+      text-align: center;
+      padding: 32px 16px;
+      color: #6b7280;
+      font-size: 13px;
+    }
+
+    .bundles-empty-icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+      opacity: 0.5;
+    }
+
+    /* Header buttons */
+    .header-buttons {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .header-btn {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: #f3f4f6;
+      color: #6b7280;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .header-btn:hover {
+      background: #e5e7eb;
+      color: #374151;
+    }
+
+    .header-btn.active {
+      background: #fef3c7;
+      color: #f59e0b;
+    }
+
+    /* Settings panel */
+    .settings-panel {
+      display: none;
+      margin-bottom: 16px;
+      padding: 12px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+    }
+
+    .settings-panel.visible {
+      display: block;
+    }
+
+    .settings-title {
+      font-weight: 600;
+      font-size: 13px;
+      color: #374151;
+      margin-bottom: 12px;
+    }
+
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+    }
+
+    .setting-label {
+      font-size: 13px;
+      color: #4b5563;
+    }
+
+    .setting-desc {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: 2px;
+    }
+
+    /* Toggle switches */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+    }
+
+    .toggle-label {
+      font-size: 13px;
+      color: #374151;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 40px;
+      height: 22px;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: #d1d5db;
+      transition: 0.2s;
+      border-radius: 22px;
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: '';
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.2s;
+      border-radius: 50%;
+    }
+
+    .toggle-switch input:checked + .toggle-slider {
+      background-color: #f59e0b;
+    }
+
+    .toggle-switch input:checked + .toggle-slider:before {
+      transform: translateX(18px);
+    }
+
+    /* View states */
+    .view {
+      display: none;
+    }
+
+    .view.active {
+      display: block;
+    }
+
+    /* Toast notifications */
+    .toast {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      right: 16px;
+      padding: 12px 16px;
+      background: #1f2937;
+      color: #ffffff;
+      border-radius: 8px;
+      font-size: 13px;
+      text-align: center;
+      transform: translateY(-100px);
+      opacity: 0;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+      z-index: 100;
+    }
+
+    .toast.visible {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .toast.success {
+      background: #065f46;
+    }
+
+    .toast.error {
+      background: #991b1b;
+    }
+
+    /* Preview/Detail section */
     .preview {
       margin-top: 16px;
       display: none;
@@ -387,11 +705,6 @@
       font-weight: 600;
       color: #92400e;
       font-size: 14px;
-    }
-
-    .preview-actions {
-      display: flex;
-      gap: 8px;
     }
 
     .preview-section {
@@ -560,60 +873,6 @@
       word-break: break-word;
     }
 
-    /* Toggle switches */
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px 0;
-    }
-
-    .toggle-label {
-      font-size: 13px;
-      color: #374151;
-    }
-
-    .toggle-switch {
-      position: relative;
-      width: 40px;
-      height: 22px;
-    }
-
-    .toggle-switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-
-    .toggle-slider {
-      position: absolute;
-      cursor: pointer;
-      inset: 0;
-      background-color: #d1d5db;
-      transition: 0.2s;
-      border-radius: 22px;
-    }
-
-    .toggle-slider:before {
-      position: absolute;
-      content: '';
-      height: 16px;
-      width: 16px;
-      left: 3px;
-      bottom: 3px;
-      background-color: white;
-      transition: 0.2s;
-      border-radius: 50%;
-    }
-
-    .toggle-switch input:checked + .toggle-slider {
-      background-color: #f59e0b;
-    }
-
-    .toggle-switch input:checked + .toggle-slider:before {
-      transform: translateX(18px);
-    }
-
     /* Stats row */
     .stats-row {
       display: flex;
@@ -681,209 +940,6 @@
       cursor: not-allowed;
     }
 
-    /* Toast notifications */
-    .toast {
-      position: fixed;
-      top: 16px;
-      left: 16px;
-      right: 16px;
-      padding: 12px 16px;
-      background: #1f2937;
-      color: #ffffff;
-      border-radius: 8px;
-      font-size: 13px;
-      text-align: center;
-      transform: translateY(-100px);
-      opacity: 0;
-      transition: transform 0.2s ease, opacity 0.2s ease;
-      z-index: 100;
-    }
-
-    .toast.visible {
-      transform: translateY(0);
-      opacity: 1;
-    }
-
-    .toast.success {
-      background: #065f46;
-    }
-
-    .toast.error {
-      background: #991b1b;
-    }
-
-    /* View states */
-    .view {
-      display: none;
-    }
-
-    .view.active {
-      display: block;
-    }
-
-    /* Header buttons */
-    .header-buttons {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .header-btn {
-      width: 32px;
-      height: 32px;
-      border: none;
-      background: #f3f4f6;
-      color: #6b7280;
-      border-radius: 6px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 16px;
-      transition: background 0.15s ease, color 0.15s ease;
-    }
-
-    .header-btn:hover {
-      background: #e5e7eb;
-      color: #374151;
-    }
-
-    .header-btn.active {
-      background: #fef3c7;
-      color: #f59e0b;
-    }
-
-    /* Settings panel */
-    .settings-panel {
-      display: none;
-      margin-bottom: 16px;
-      padding: 12px;
-      background: #f9fafb;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-    }
-
-    .settings-panel.visible {
-      display: block;
-    }
-
-    .settings-title {
-      font-weight: 600;
-      font-size: 13px;
-      color: #374151;
-      margin-bottom: 12px;
-    }
-
-    .setting-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px 0;
-    }
-
-    .setting-label {
-      font-size: 13px;
-      color: #4b5563;
-    }
-
-    .setting-desc {
-      font-size: 11px;
-      color: #9ca3af;
-      margin-top: 2px;
-    }
-
-    /* Bundles list view styles */
-    .bundles-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .bundle-card {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px;
-      background: #ffffff;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: border-color 0.15s ease, box-shadow 0.15s ease;
-    }
-
-    .bundle-card:hover {
-      border-color: #f59e0b;
-      box-shadow: 0 2px 4px rgba(245, 158, 11, 0.15);
-    }
-
-    .bundle-card-icon {
-      width: 44px;
-      height: 44px;
-      background: #fef3c7;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      flex-shrink: 0;
-    }
-
-    .bundle-card-info {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .bundle-card-name {
-      font-size: 14px;
-      font-weight: 500;
-      color: #1f2937;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .bundle-card-meta {
-      font-size: 12px;
-      color: #6b7280;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .bundle-card-remove {
-      width: 28px;
-      height: 28px;
-      border: none;
-      background: transparent;
-      color: #9ca3af;
-      cursor: pointer;
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-      transition: background 0.15s ease, color 0.15s ease;
-      flex-shrink: 0;
-    }
-
-    .bundle-card-remove:hover {
-      background: #fee2e2;
-      color: #dc2626;
-    }
-
-    .bundles-empty {
-      text-align: center;
-      padding: 32px 16px;
-      color: #6b7280;
-      font-size: 13px;
-    }
-
-    .bundles-empty-icon {
-      font-size: 32px;
-      margin-bottom: 8px;
-      opacity: 0.5;
-    }
-
     /* Move to bundle select */
     .move-bundle-section {
       margin-top: 12px;
@@ -944,7 +1000,7 @@
     <span class="back-nav-text" id="backNavText">Back to Bundles</span>
   </div>
 
-  <!-- Bundles List View (View 1) -->
+  <!-- Main View (Bundles with Accordion) -->
   <div class="view active" id="bundlesView">
     <!-- Current page status -->
     <div class="status">
@@ -973,43 +1029,22 @@
       </div>
     </div>
 
-    <!-- Bundles list -->
+    <!-- Bundles accordion list -->
     <div class="bundle-section">
-      <div class="bundle-header">
+      <div class="bundle-section-header">
         <div>
-          <div class="bundle-title">Bundles</div>
-          <div class="bundle-count" id="bundlesCount">0 bundles</div>
+          <div class="bundle-section-title">Bundles</div>
+          <div class="bundle-section-count" id="bundlesCount">0 bundles</div>
         </div>
-        <div class="bundle-actions">
-          <button class="bundle-action-btn primary" id="newBundleBtn">+ New</button>
-          <button class="bundle-action-btn danger" id="clearAllBundlesBtn">Clear All</button>
-        </div>
+        <button class="bundle-action-btn danger" id="clearAllBundlesBtn">Clear All</button>
       </div>
-      <div class="bundles-list" id="bundlesList">
+      <div class="accordion-list" id="bundlesList">
         <div class="bundles-empty">
           <div class="bundles-empty-icon">&#128193;</div>
           <div>No bundles yet. Capture a page to start.</div>
         </div>
       </div>
-    </div>
-  </div>
-
-  <!-- Pages in Bundle View (View 2) -->
-  <div class="view" id="pagesView">
-    <div class="bundle-section">
-      <div class="bundle-header">
-        <div>
-          <div class="bundle-title" id="currentBundleName">Bundle</div>
-          <div class="bundle-count" id="pagesCount">0 pages captured</div>
-        </div>
-        <div class="bundle-actions">
-          <button class="bundle-action-btn primary" id="copyBundleBtn">Copy All</button>
-          <button class="bundle-action-btn danger" id="deleteBundleBtn">Delete Bundle</button>
-        </div>
-      </div>
-      <div class="bundle-list" id="pagesList">
-        <div class="bundle-empty">No pages captured yet.</div>
-      </div>
+      <button class="new-bundle-btn-large" id="newBundleBtn">+ New Bundle</button>
     </div>
   </div>
 
