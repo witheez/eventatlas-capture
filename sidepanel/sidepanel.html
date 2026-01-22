@@ -682,6 +682,152 @@
       transform: translateX(18px);
     }
 
+    /* Settings inputs and selects */
+    .settings-divider {
+      height: 1px;
+      background: #e5e7eb;
+      margin: 12px 0;
+    }
+
+    .setting-row-vertical {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .setting-input {
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: inherit;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #ffffff;
+    }
+
+    .setting-input:focus {
+      outline: none;
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+    }
+
+    .setting-input::placeholder {
+      color: #9ca3af;
+    }
+
+    .input-with-toggle {
+      position: relative;
+      display: flex;
+      align-items: center;
+      width: 100%;
+    }
+
+    .input-with-toggle .setting-input {
+      width: 100%;
+      padding-right: 40px;
+    }
+
+    .toggle-visibility-btn {
+      position: absolute;
+      right: 4px;
+      padding: 4px 8px;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      opacity: 0.5;
+      transition: opacity 0.15s ease;
+    }
+
+    .toggle-visibility-btn:hover {
+      opacity: 1;
+    }
+
+    .toggle-visibility-btn .eye-icon {
+      font-size: 14px;
+    }
+
+    .setting-select {
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: inherit;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #ffffff;
+      cursor: pointer;
+    }
+
+    .setting-select:focus {
+      outline: none;
+      border-color: #f59e0b;
+    }
+
+    .save-settings-btn {
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #ffffff;
+      background: #f59e0b;
+      border: 1px solid #d97706;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .save-settings-btn:hover {
+      background: #d97706;
+      border-color: #b45309;
+    }
+
+    .save-settings-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .save-settings-btn.saved {
+      background: #22c55e;
+      border-color: #16a34a;
+    }
+
+    .test-connection-btn {
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #78350f;
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .test-connection-btn:hover {
+      background: #fde68a;
+      border-color: #f59e0b;
+    }
+
+    .test-connection-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .connection-status {
+      font-size: 12px;
+      margin-left: 8px;
+    }
+
+    .connection-status.success {
+      color: #059669;
+    }
+
+    .connection-status.error {
+      color: #dc2626;
+    }
+
+    .connection-status.loading {
+      color: #6b7280;
+    }
+
     /* View states */
     .view {
       display: none;
@@ -1106,6 +1252,35 @@
     .screenshot-modal-close:hover {
       background: #ffffff;
     }
+
+    /* URL Status Indicator */
+    .url-status-container {
+      padding: 8px 12px;
+      margin-top: 8px;
+      border-radius: 6px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+    }
+
+    .url-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .url-status-badge.event { color: #22c55e; }
+    .url-status-badge.link-discovery { color: #3b82f6; }
+    .url-status-badge.content-item { color: #f59e0b; }
+    .url-status-badge.no-match { color: #9ca3af; }
+    .url-status-badge.loading { color: #6b7280; }
+
+    .url-status-details {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 4px;
+    }
   </style>
 </head>
 <body>
@@ -1140,6 +1315,42 @@
         <span class="toggle-slider"></span>
       </label>
     </div>
+
+    <!-- EventAtlas API Settings -->
+    <div class="settings-divider"></div>
+    <div class="settings-title" style="margin-top: 16px;">EventAtlas API</div>
+
+    <div class="setting-row setting-row-vertical">
+      <div class="setting-label">API URL</div>
+      <input type="text" class="setting-input" id="apiUrlSetting" placeholder="https://your-app.up.railway.app">
+    </div>
+
+    <div class="setting-row setting-row-vertical">
+      <div class="setting-label">API Token</div>
+      <div class="input-with-toggle">
+        <input type="password" class="setting-input" id="apiTokenSetting" placeholder="Enter your API token">
+        <button type="button" class="toggle-visibility-btn" id="toggleTokenVisibility" title="Show/hide token">
+          <span class="eye-icon">👁</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="setting-row setting-row-vertical">
+      <div class="setting-label">Sync Mode</div>
+      <select class="setting-select" id="syncModeSetting">
+        <option value="bulk_only">Bulk only</option>
+        <option value="realtime_only">Real-time only</option>
+        <option value="both">Both (recommended)</option>
+      </select>
+    </div>
+
+    <div class="setting-row" style="gap: 8px;">
+      <button class="save-settings-btn" id="saveSettingsBtn">Save Settings</button>
+      <button class="test-connection-btn" id="testConnectionBtn">Test Connection</button>
+    </div>
+    <div class="setting-row">
+      <span class="connection-status" id="connectionStatus"></span>
+    </div>
   </div>
 
   <!-- Back navigation -->
@@ -1155,6 +1366,12 @@
       <div class="status-label">Current Page</div>
       <div class="status-value truncate" id="pageTitle">Loading...</div>
       <div class="status-value" id="pageUrl" style="font-size: 12px; color: #6b7280; margin-top: 4px;"></div>
+    </div>
+
+    <!-- URL Status Indicator -->
+    <div id="urlStatusContainer" class="url-status-container" style="display: none;">
+      <div id="urlStatusBadge" class="url-status-badge"></div>
+      <div id="urlStatusDetails" class="url-status-details"></div>
     </div>
 
     <!-- Capture buttons - adaptive based on screenshot setting -->

@@ -2,7 +2,7 @@
 
 ## Current Phase: 5 - Wire to EventAtlas API
 
-## Status: In Progress (API endpoints complete, extension wiring next)
+## Status: In Progress (Extension wiring complete, capture endpoint next)
 
 ---
 
@@ -47,12 +47,13 @@
   - `GET /api/extension/sync` ✅ - Bulk sync events and organizer links
   - `GET /api/extension/lookup?url=...` ✅ - Real-time URL lookup
   - `POST /api/extension/capture` ⏳ - Send bundle to EventAtlas (next)
-- **5c: Wire Extension** ⏳
-  - Settings field for API token/URL
-  - Sync data on startup (stores in chrome.storage.local)
-  - Show event badge when visiting known URLs
-  - Real-time lookup for verification
-  - Send bundles to EventAtlas
+- **5c: Wire Extension** ✅
+  - Settings field for API token/URL ✅
+  - Sync data on startup (stores in chrome.storage.local) ✅
+  - Show event badge when visiting known URLs ✅
+  - Real-time lookup for verification ✅
+  - URL status indicator in sidepanel ✅
+  - Send bundles to EventAtlas ⏳ (deferred to 5d)
 
 ---
 

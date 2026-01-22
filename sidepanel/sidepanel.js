@@ -8,6 +8,7 @@
 
 // Storage keys
 const STORAGE_KEY = 'eventatlas_capture_data';
+const SYNC_DATA_KEY = 'eventatlas_sync_data';
 const MAX_BUNDLE_PAGES = 20;
 const MAX_BUNDLES = 50;
 
@@ -15,6 +16,9 @@ const MAX_BUNDLES = 50;
 const DEFAULT_SETTINGS = {
   autoGroupByDomain: true,
   captureScreenshotByDefault: false,
+  apiUrl: '',
+  apiToken: '',
+  syncMode: 'both', // 'bulk_only', 'realtime_only', 'both'
 };
 
 // App state
@@ -47,6 +51,15 @@ const settingsBtn = document.getElementById('settingsBtn');
 const settingsPanel = document.getElementById('settingsPanel');
 const autoGroupSetting = document.getElementById('autoGroupSetting');
 const screenshotDefaultSetting = document.getElementById('screenshotDefaultSetting');
+
+// DOM Elements - API Settings
+const apiUrlSetting = document.getElementById('apiUrlSetting');
+const apiTokenSetting = document.getElementById('apiTokenSetting');
+const toggleTokenVisibility = document.getElementById('toggleTokenVisibility');
+const syncModeSetting = document.getElementById('syncModeSetting');
+const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+const testConnectionBtn = document.getElementById('testConnectionBtn');
+const connectionStatus = document.getElementById('connectionStatus');
 
 // DOM Elements - Bundles view
 const pageTitleEl = document.getElementById('pageTitle');
@@ -103,6 +116,11 @@ const removeBtn = document.getElementById('removeBtn');
 // DOM Elements - Toast
 const toastEl = document.getElementById('toast');
 
+// DOM Elements - URL Status
+const urlStatusContainer = document.getElementById('urlStatusContainer');
+const urlStatusBadge = document.getElementById('urlStatusBadge');
+const urlStatusDetails = document.getElementById('urlStatusDetails');
+
 /**
  * Format bytes to human-readable string
  */
@@ -122,6 +140,20 @@ function getDomain(url) {
     return new URL(url).hostname;
   } catch {
     return url;
+  }
+}
+
+/**
+ * Normalize URL for comparison (strips protocol, www, query params, fragment, trailing slash)
+ */
+function normalizeUrl(url) {
+  try {
+    const parsed = new URL(url);
+    let normalized = parsed.hostname.replace(/^www\./, '');
+    normalized += parsed.pathname.replace(/\/$/, '');
+    return normalized.toLowerCase();
+  } catch (e) {
+    return url.toLowerCase();
   }
 }
 
@@ -182,6 +214,9 @@ async function updateTabInfo() {
     pageTitleEl.textContent = 'Unable to get tab info';
     console.error('Error getting tab info:', err);
   }
+
+  // Update URL status after tab info is updated
+  await updateUrlStatus();
 }
 
 /**
@@ -262,6 +297,167 @@ async function loadFromStorage() {
   bundles = [];
   settings = { ...DEFAULT_SETTINGS };
   return false;
+}
+
+/**
+ * Sync data from EventAtlas API (bulk sync)
+ * Fetches events and organizer links for local URL matching
+ */
+async function syncWithApi() {
+  // Skip if no API configured
+  if (!settings.apiUrl || !settings.apiToken) return null;
+  if (settings.syncMode === 'realtime_only') return null;
+
+  try {
+    const response = await fetch(`${settings.apiUrl}/api/extension/sync`, {
+      headers: {
+        'Authorization': `Bearer ${settings.apiToken}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) throw new Error(`Sync failed: ${response.status}`);
+
+    const data = await response.json();
+
+    // Store sync data
+    await chrome.storage.local.set({
+      [SYNC_DATA_KEY]: {
+        events: data.events || [],
+        organizerLinks: data.organizer_links || [],
+        syncedAt: data.synced_at,
+      },
+    });
+
+    return data;
+  } catch (error) {
+    console.error('[EventAtlas] Sync error:', error);
+    return null;
+  }
+}
+
+/**
+ * Get local match for a URL from synced data
+ * Returns match info if URL exists in events or organizer links
+ */
+async function getLocalMatch(url) {
+  try {
+    const result = await chrome.storage.local.get([SYNC_DATA_KEY]);
+    const syncData = result[SYNC_DATA_KEY];
+
+    if (!syncData) return null;
+
+    const normalizedUrl = normalizeUrl(url);
+
+    // Check events - API returns source_url_normalized
+    const events = syncData.events || [];
+    for (const event of events) {
+      if (event.source_url_normalized === normalizedUrl) {
+        return {
+          match_type: 'event',
+          event: event,
+        };
+      }
+    }
+
+    // Check organizer links - API returns url_normalized
+    const organizerLinks = syncData.organizerLinks || [];
+    for (const link of organizerLinks) {
+      if (link.url_normalized === normalizedUrl) {
+        return {
+          match_type: 'link_discovery',
+          organizer_link: link,
+        };
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('[EventAtlas] Local match error:', error);
+    return null;
+  }
+}
+
+/**
+ * Lookup URL via API (real-time) or local sync data
+ * Combines local and remote lookups based on sync mode
+ */
+async function lookupUrl(url) {
+  // First check local sync data
+  const local = await getLocalMatch(url);
+
+  // If sync mode is bulk only, return local match
+  if (settings.syncMode === 'bulk_only') return local;
+
+  // Otherwise, do real-time lookup
+  if (!settings.apiUrl || !settings.apiToken) return local;
+
+  try {
+    const response = await fetch(
+      `${settings.apiUrl}/api/extension/lookup?url=${encodeURIComponent(url)}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${settings.apiToken}`,
+          'Accept': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) return local;
+    return await response.json();
+  } catch (error) {
+    console.error('[EventAtlas] Lookup error:', error);
+    return local;
+  }
+}
+
+/**
+ * Update URL status indicator based on current tab URL
+ */
+async function updateUrlStatus() {
+  // Skip if no API configured
+  if (!settings.apiUrl || !settings.apiToken) {
+    urlStatusContainer.style.display = 'none';
+    return;
+  }
+
+  // Get current tab URL
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
+    urlStatusContainer.style.display = 'none';
+    return;
+  }
+
+  // Show loading state
+  urlStatusContainer.style.display = 'block';
+  urlStatusBadge.className = 'url-status-badge loading';
+  urlStatusBadge.textContent = '\u22EF Checking...';
+  urlStatusDetails.textContent = '';
+
+  try {
+    const result = await lookupUrl(tab.url);
+
+    if (!result || result.match_type === 'no_match') {
+      urlStatusBadge.className = 'url-status-badge no-match';
+      urlStatusBadge.textContent = '\u25CB Not in EventAtlas';
+      urlStatusDetails.textContent = 'Capture this page to add it';
+    } else if (result.match_type === 'event') {
+      urlStatusBadge.className = 'url-status-badge event';
+      urlStatusBadge.textContent = '\u2713 Known Event';
+      urlStatusDetails.textContent = result.event?.title || '';
+    } else if (result.match_type === 'link_discovery') {
+      urlStatusBadge.className = 'url-status-badge link-discovery';
+      urlStatusBadge.textContent = '\u2295 Discovery Page';
+      urlStatusDetails.textContent = result.organizer_link?.organizer_name || '';
+    } else if (result.match_type === 'content_item') {
+      urlStatusBadge.className = 'url-status-badge content-item';
+      urlStatusBadge.textContent = '\u25D0 Scraped';
+      urlStatusDetails.textContent = 'Scraped but not yet processed';
+    }
+  } catch (error) {
+    console.error('[EventAtlas] Status update error:', error);
+    urlStatusContainer.style.display = 'none';
+  }
 }
 
 /**
@@ -1421,6 +1617,123 @@ screenshotDefaultSetting.addEventListener('change', async () => {
   updateCaptureButtonsVisibility();
 });
 
+// Event Listeners - API Settings (clear status on change, but don't auto-save)
+apiUrlSetting.addEventListener('input', () => {
+  connectionStatus.textContent = '';
+  connectionStatus.className = 'connection-status';
+});
+
+apiTokenSetting.addEventListener('input', () => {
+  connectionStatus.textContent = '';
+  connectionStatus.className = 'connection-status';
+});
+
+// Toggle token visibility (show/hide password)
+toggleTokenVisibility.addEventListener('click', () => {
+  const isPassword = apiTokenSetting.type === 'password';
+  apiTokenSetting.type = isPassword ? 'text' : 'password';
+  toggleTokenVisibility.querySelector('.eye-icon').textContent = isPassword ? '🙈' : '👁';
+  toggleTokenVisibility.title = isPassword ? 'Hide token' : 'Show token';
+});
+
+// Save Settings button - saves all API settings at once
+saveSettingsBtn.addEventListener('click', async () => {
+  // Collect values from form
+  settings.apiUrl = apiUrlSetting.value.trim();
+  settings.apiToken = apiTokenSetting.value.trim();
+  settings.syncMode = syncModeSetting.value;
+
+  // Save to storage
+  await saveToStorage();
+
+  // Show saved feedback
+  saveSettingsBtn.textContent = 'Saved!';
+  saveSettingsBtn.classList.add('saved');
+
+  setTimeout(() => {
+    saveSettingsBtn.textContent = 'Save Settings';
+    saveSettingsBtn.classList.remove('saved');
+  }, 1500);
+
+  // Trigger sync if API is configured
+  if (settings.apiUrl && settings.apiToken) {
+    syncWithApi().then((result) => {
+      if (result) {
+        updateUrlStatus();
+      }
+    });
+  }
+});
+
+testConnectionBtn.addEventListener('click', testConnection);
+
+/**
+ * Test API connection (reads directly from form fields, not saved settings)
+ */
+async function testConnection() {
+  const apiUrl = apiUrlSetting.value.trim();
+  const apiToken = apiTokenSetting.value.trim();
+
+  // Validate form fields
+  if (!apiUrl) {
+    connectionStatus.textContent = 'Enter API URL';
+    connectionStatus.className = 'connection-status error';
+    return;
+  }
+
+  if (!apiToken) {
+    connectionStatus.textContent = 'Enter API Token';
+    connectionStatus.className = 'connection-status error';
+    return;
+  }
+
+  // Show loading state
+  testConnectionBtn.disabled = true;
+  connectionStatus.textContent = 'Testing...';
+  connectionStatus.className = 'connection-status loading';
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+    const response = await fetch(`${apiUrl}/api/extension/sync`, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${apiToken}`,
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      connectionStatus.textContent = 'Connected!';
+      connectionStatus.className = 'connection-status success';
+    } else if (response.status === 401) {
+      connectionStatus.textContent = 'Invalid token';
+      connectionStatus.className = 'connection-status error';
+    } else if (response.status === 404) {
+      connectionStatus.textContent = 'Endpoint not found';
+      connectionStatus.className = 'connection-status error';
+    } else {
+      connectionStatus.textContent = `Error ${response.status}`;
+      connectionStatus.className = 'connection-status error';
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      connectionStatus.textContent = 'Timeout';
+      connectionStatus.className = 'connection-status error';
+    } else {
+      connectionStatus.textContent = 'Connection failed';
+      connectionStatus.className = 'connection-status error';
+    }
+    console.error('Connection test error:', error);
+  } finally {
+    testConnectionBtn.disabled = false;
+  }
+}
+
 // Event Listeners - Bundles view
 // Single button (when screenshot default is ON) - always captures with screenshot
 captureBtn.addEventListener('click', () => capturePage(true));
@@ -1535,9 +1848,27 @@ async function init() {
   await updateTabInfo();
   await loadFromStorage();
 
+  // Sync with API in background (don't block UI)
+  syncWithApi().then((result) => {
+    if (result) {
+      console.log('[EventAtlas] Sync completed:', {
+        events: result.events?.length || 0,
+        organizerLinks: result.organizer_links?.length || 0,
+        syncedAt: result.synced_at,
+      });
+      // Refresh URL status now that we have sync data
+      updateUrlStatus();
+    }
+  });
+
   // Apply settings to UI
   autoGroupSetting.checked = settings.autoGroupByDomain;
   screenshotDefaultSetting.checked = settings.captureScreenshotByDefault;
+
+  // Apply API settings to UI
+  apiUrlSetting.value = settings.apiUrl || '';
+  apiTokenSetting.value = settings.apiToken || '';
+  syncModeSetting.value = settings.syncMode || 'both';
 
   // Update capture button visibility based on setting
   updateCaptureButtonsVisibility();
