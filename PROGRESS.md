@@ -1,67 +1,112 @@
 # Chrome Extension Development Progress
 
-## Current Phase: 2 - Preview UI
+## Current Phase: 5 - Wire to EventAtlas API
 
-## Status: Complete - Ready for Testing
+## Status: In Progress (Sanctum configured, API endpoints next)
 
 ---
 
-## Phases
+## Completed Phases
 
-### Phase 1: Can We Capture? ✅
-- [x] Extension scaffold (manifest.json, popup, content script)
-- [x] Capture button that extracts page data
-- [ ] Test on various site types (manual testing needed)
+### Phase 1: Extension Scaffold ✅
+- Manifest V3 with side panel
+- Content script for page extraction
+- Background service worker
 
 ### Phase 2: Preview UI ✅
-- [x] Expanded popup (420px) with preview sections
-- [x] Editable title/URL, text preview with expand/collapse
-- [x] Image gallery with include/exclude checkboxes
-- [x] Metadata display, export toggles, copy to clipboard
-- [x] Session storage persistence
+- Sidebar panel (stays open while browsing)
+- Page info display with editable title/URL
+- Text preview with expand/collapse
+- Image gallery with include/exclude
+- Metadata display
+- Copy to clipboard (JSON)
 
-### Phase 3: Screenshots
-- [ ] Viewport screenshot
-- [ ] Full-page screenshot (if needed)
+### Phase 3: Multi-page Bundling ✅
+- Multiple bundles support
+- Accordion-style UI (expand to see pages)
+- Drag & drop pages between bundles
+- Settings panel with gear icon
+- "Auto-group by domain" setting
+- Session persistence (survives restart)
 
-### Phase 4: Wire to EventAtlas
-- [ ] Laravel API endpoint
-- [ ] Connect extension to API
-- [ ] Auth handling
+### Phase 4: Screenshot Capture ✅
+- Viewport screenshot on capture
+- Setting: "Capture screenshots by default"
+- Adaptive buttons based on setting:
+  - ON: Single "Capture Page" button
+  - OFF: Two buttons "Capture Page" + "+ Screenshot"
+- "Add Screenshot" button in detail view
+- Screenshot preview with modal
 
-### Phase 5: Multi-page Bundling
-- [ ] Session-based capture
-- [ ] Bundle management UI
+### Phase 5: Wire to EventAtlas API 🔄
+- **5a: Laravel Sanctum** ✅
+  - Package installed and configured
+  - Token management UI at `/admin/v2/api-tokens`
+  - Sidebar menu item added
+- **5b: API Endpoints** ⏳ (next)
+  - `GET /api/extension/organizers` - Fetch known organizers/URLs
+  - `POST /api/extension/capture` - Send bundle to EventAtlas
+- **5c: Wire Extension** ⏳
+  - Settings field for API token/URL
+  - Sync organizer data on startup
+  - Show "Known organizer" badge when visiting known URLs
+  - Send bundles to EventAtlas
 
 ---
 
-## Agent Log
+## Architecture Decisions
 
-| Time | Agent | Task | Status |
-|------|-------|------|--------|
-| 2026-01-21 | scaffold-agent | Create extension scaffold | ✅ Complete |
+### URL Recognition Challenge
+Some organizers reuse URLs year-over-year (e.g., Cara Hill Marathon uses same URLs for 2024, 2025, 2026). Solution:
+- When capturing from known URL, give user choice:
+  - "Add to existing content item: [Name]"
+  - "Create new content item"
+- User decides which content item it belongs to
+
+### Bi-directional Communication
+- **Extension → EventAtlas**: Send captured bundles
+- **EventAtlas → Extension**: Receive organizer URLs for recognition
+
+### Authentication
+- Laravel Sanctum personal access tokens
+- Admin generates token in EventAtlas → pastes in extension settings
+- Token sent as `Authorization: Bearer {token}` header
 
 ---
 
-## Files Created (Phase 1)
+## Extension Structure
 
 ```
-manifest.json        (+29)  - Manifest V3 config
-popup/popup.html    (+119)  - Amber-themed UI
-popup/popup.js      (+127)  - Popup logic
-content/content.js  (+119)  - Page extraction
-icons/README.md      (+17)  - Placeholder
-README.md           (+103)  - Installation docs
+eventatlas-capture/
+├── manifest.json           # Manifest V3, side panel config
+├── background.js           # Service worker, screenshot capture
+├── content/
+│   └── content.js          # Page extraction (HTML, text, images, metadata)
+├── sidepanel/
+│   ├── sidepanel.html      # Sidebar UI with all styles
+│   └── sidepanel.js        # Bundle management, settings, capture flow
+├── SPEC.md                 # Original idea spec
+├── PROGRESS.md             # This file
+└── README.md               # Installation instructions
 ```
+
+---
+
+## Key Files in EventAtlas (Laravel)
+
+| File | Purpose |
+|------|---------|
+| `config/sanctum.php` | Sanctum configuration |
+| `app/Http/Controllers/V2/Admin/ApiTokenController.php` | Token CRUD |
+| `resources/js/Pages/V2/ApiTokens/Index.tsx` | Token management UI |
+| `app/Http/Middleware/HandleInertiaRequests.php` | Flash data sharing |
 
 ---
 
 ## Next Steps
 
-1. **Manual Testing** - Load extension in Chrome, test on:
-   - Static HTML site
-   - React SPA (Eventbrite, etc)
-   - Instagram/Facebook
-   - Sites that fail EventAtlas scraper
-
-2. If capture works well → Phase 2 (Preview UI)
+1. **Build API endpoint for organizers** - Extension fetches list of known organizers/URLs
+2. **Build API endpoint for capture** - Extension sends bundles to create content items
+3. **Add settings to extension** - API URL, token, sync controls
+4. **Implement recognition** - Badge/indicator when visiting known organizer
+5. **Test end-to-end flow**
