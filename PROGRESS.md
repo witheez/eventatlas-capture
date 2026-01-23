@@ -1,8 +1,11 @@
 # Chrome Extension Development Progress
 
-## Current Phase: 5 - Wire to EventAtlas API
+> **New Agent?** Read `CONTEXT.md` first for full session context, technical decisions, and do's/don'ts.
+> Also read `/Users/danielforstner/Herd/eventatlas/.claude/CLAUDE.md` for project rules.
 
-## Status: In Progress (Extension wiring complete, capture endpoint next)
+## Current Phase: 5d - Capture Endpoint
+
+## Status: In Progress (5a-5c complete, building capture endpoint next)
 
 ---
 
