@@ -100,6 +100,67 @@ POST /api/extension/capture - (NOT YET BUILT) Send bundles to EventAtlas
   - URL status display
   - Test Connection button
 
+---
+
+## Phase 5d: Capture Endpoint Data Structures
+
+### What Extension Captures (per page)
+```javascript
+{
+  url: "https://example.com/event",
+  title: "Event Title",
+  html: "<html>...</html>",           // Full page HTML
+  text: "Visible text content...",    // innerText
+  images: ["https://...jpg", ...],    // All image URLs found
+  metadata: {
+    og_title: "...",
+    og_image: "...",
+    twitter_card: "...",
+    description: "...",
+    // etc.
+  },
+  capturedAt: "2024-01-22T10:30:00Z",
+  screenshot: "data:image/png;base64,...",  // Optional, base64
+
+  // User edits in sidepanel:
+  editedTitle: "Custom Title",        // If user changed it
+  editedUrl: "https://...",           // If user changed it
+  selectedImages: ["url1", "url2"],   // User-selected subset
+  includeHtml: true,                  // User toggle
+  includeImages: true,                // User toggle
+  includeScreenshot: true,            // User toggle
+}
+```
+
+### Bundle Structure
+```javascript
+{
+  id: "uuid-here",
+  name: "Bundle Name",
+  pages: [ /* array of captures above */ ],
+  createdAt: "2024-01-22T10:00:00Z",
+  expanded: true  // UI state
+}
+```
+
+### Mapping to Laravel ContentItem
+The capture endpoint should create `ContentItem` records. Key fields to map:
+- `url` → `source_url`
+- `editedTitle` or `title` → `title`
+- `html` → `raw_html` (if includeHtml)
+- `text` → `extracted_text`
+- `screenshot` → store as file, link to content item
+- `metadata` → `meta_data` JSON field
+- `capturedAt` → `scraped_at`
+
+### Questions to Clarify for Phase 5d
+1. Should captures create ContentItems directly, or go through a processing queue?
+2. How to handle the parent OrganizerLink relationship (if any)?
+3. Screenshot storage: use PersistentFileStorage service?
+4. Should we deduplicate by URL before creating?
+
+---
+
 ### Next Steps (HIGH priority)
 1. **Phase 5d:** `POST /api/extension/capture` - Send bundles to EventAtlas
    - Create content items from captured page data
