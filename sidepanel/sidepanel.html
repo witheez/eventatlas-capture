@@ -2337,6 +2337,181 @@
       background: #f59e0b;
       border-radius: 50%;
     }
+
+    /* Upload Queue - fixed at bottom */
+    .upload-queue {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #ffffff;
+      border-top: 1px solid #e5e7eb;
+      padding: 10px 12px;
+      box-shadow: 0 -2px 8px rgba(0,0,0,0.1);
+      z-index: 100;
+      display: none;
+    }
+
+    .upload-queue.active {
+      display: block;
+    }
+
+    .upload-queue-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .upload-queue-title {
+      font-size: 12px;
+      font-weight: 500;
+      color: #374151;
+    }
+
+    .upload-queue-count {
+      font-size: 11px;
+      padding: 2px 8px;
+      background: #f59e0b;
+      color: #ffffff;
+      border-radius: 10px;
+      font-weight: 500;
+    }
+
+    .upload-queue-items {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .upload-queue-item {
+      width: 48px;
+      height: 48px;
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
+      background: #f3f4f6;
+      flex-shrink: 0;
+    }
+
+    .upload-queue-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.7;
+    }
+
+    .upload-queue-item.uploading img {
+      opacity: 0.5;
+    }
+
+    .upload-queue-item.complete img {
+      opacity: 1;
+    }
+
+    .upload-queue-item.failed {
+      border: 2px solid #ef4444;
+    }
+
+    .upload-queue-item.failed img {
+      opacity: 0.4;
+    }
+
+    .upload-queue-item .progress-ring {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    .upload-queue-item .progress-ring-bg {
+      fill: none;
+      stroke: #e5e7eb;
+      stroke-width: 2;
+    }
+
+    .upload-queue-item .progress-ring-fill {
+      fill: none;
+      stroke: #22c55e;
+      stroke-width: 2;
+      transform: rotate(-90deg);
+      transform-origin: center;
+      transition: stroke-dashoffset 0.2s ease;
+    }
+
+    .upload-queue-item .check-icon {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 18px;
+      color: #22c55e;
+      display: none;
+    }
+
+    .upload-queue-item.complete .check-icon {
+      display: block;
+    }
+
+    .upload-queue-item.complete .progress-ring {
+      display: none;
+    }
+
+    .upload-queue-item .retry-btn {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #ef4444;
+      color: #ffffff;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .upload-queue-item.failed .retry-btn {
+      display: flex;
+    }
+
+    .upload-queue-item.failed .progress-ring {
+      display: none;
+    }
+
+    .upload-queue-item .event-label {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(0, 0, 0, 0.6);
+      color: #ffffff;
+      font-size: 8px;
+      padding: 2px 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .upload-queue-item.complete {
+      animation: queueItemComplete 0.5s ease 1s forwards;
+    }
+
+    @keyframes queueItemComplete {
+      to {
+        opacity: 0;
+        transform: scale(0.8);
+      }
+    }
+
+    /* Add bottom padding to body when queue is active */
+    body.has-upload-queue {
+      padding-bottom: 80px;
+    }
   </style>
 </head>
 <body>
@@ -2771,6 +2946,17 @@
         <button class="unsaved-dialog-btn danger" id="unsavedDiscardBtn">Discard Changes</button>
         <button class="unsaved-dialog-btn secondary" id="unsavedCancelBtn">Cancel</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Upload Queue (fixed at bottom) -->
+  <div class="upload-queue" id="uploadQueue">
+    <div class="upload-queue-header">
+      <span class="upload-queue-title">Uploading...</span>
+      <span class="upload-queue-count" id="uploadQueueCount">0</span>
+    </div>
+    <div class="upload-queue-items" id="uploadQueueItems">
+      <!-- Queue items dynamically added here -->
     </div>
   </div>
 

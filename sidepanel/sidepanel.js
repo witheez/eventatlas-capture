@@ -196,8 +196,17 @@ let pendingScreenshots = []; // Array of { id, data, filename, capturedAt }
 let lastKnownUrl = null; // Track URL changes for unsaved warning
 let pendingUrlChange = null; // Stores the URL we want to navigate to after dialog
 
+// Upload queue state (persists in memory, survives navigation within session)
+// { id, eventId, eventName, imageData, thumbnail, status: 'uploading'|'complete'|'failed', progress: 0-100, error?: string }
+let uploadQueue = [];
+
 // DOM Elements - Screenshot Upload Timing Setting
 const screenshotUploadTimingSetting = document.getElementById('screenshotUploadTiming');
+
+// DOM Elements - Upload Queue
+const uploadQueueEl = document.getElementById('uploadQueue');
+const uploadQueueCountEl = document.getElementById('uploadQueueCount');
+const uploadQueueItemsEl = document.getElementById('uploadQueueItems');
 
 // DOM Elements - Unsaved Changes Dialog
 const unsavedDialog = document.getElementById('unsavedDialog');
@@ -3220,6 +3229,319 @@ function discardPendingScreenshots() {
   }
 }
 
+// ============================================================
+// Upload Queue Functions
+// ============================================================
+
+/**
+ * Generate a small thumbnail from base64 image data
+ * Returns a scaled-down version for the queue display
+ */
+function generateThumbnail(imageData, maxSize = 96) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(maxSize / img.width, maxSize / img.height);
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.7));
+    };
+    img.onerror = () => {
+      resolve(imageData); // Fallback to original if thumbnail fails
+    };
+    img.src = imageData;
+  });
+}
+
+/**
+ * Add item to upload queue and start upload
+ */
+async function addToUploadQueue(eventId, eventName, imageData, filename) {
+  const id = generateId();
+  const thumbnail = await generateThumbnail(imageData);
+
+  const queueItem = {
+    id,
+    eventId,
+    eventName,
+    imageData,
+    thumbnail,
+    filename,
+    status: 'uploading',
+    progress: 0,
+  };
+
+  uploadQueue.push(queueItem);
+  renderUploadQueue();
+
+  // Start upload in background
+  uploadQueueItem(queueItem);
+
+  return queueItem;
+}
+
+/**
+ * Upload a queue item with progress tracking using XMLHttpRequest
+ */
+function uploadQueueItem(queueItem) {
+  const xhr = new XMLHttpRequest();
+
+  xhr.upload.addEventListener('progress', (e) => {
+    if (e.lengthComputable) {
+      const progress = Math.round((e.loaded / e.total) * 100);
+      updateQueueItemProgress(queueItem.id, progress);
+    }
+  });
+
+  xhr.addEventListener('load', () => {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        markQueueItemComplete(queueItem.id, data.media_asset);
+      } catch {
+        markQueueItemComplete(queueItem.id, null);
+      }
+    } else {
+      let errorMessage = 'Upload failed';
+      try {
+        const errorData = JSON.parse(xhr.responseText);
+        errorMessage = errorData.message || errorMessage;
+      } catch {
+        // Ignore parse errors
+      }
+      markQueueItemFailed(queueItem.id, errorMessage);
+    }
+  });
+
+  xhr.addEventListener('error', () => {
+    markQueueItemFailed(queueItem.id, 'Network error');
+  });
+
+  xhr.addEventListener('timeout', () => {
+    markQueueItemFailed(queueItem.id, 'Upload timeout');
+  });
+
+  xhr.open('POST', `${settings.apiUrl}/api/extension/events/${queueItem.eventId}/screenshot`);
+  xhr.setRequestHeader('Authorization', `Bearer ${settings.apiToken}`);
+  xhr.setRequestHeader('Accept', 'application/json');
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.timeout = 60000; // 60 second timeout
+
+  xhr.send(JSON.stringify({
+    image: queueItem.imageData,
+    filename: queueItem.filename,
+  }));
+}
+
+/**
+ * Update progress for a queue item
+ */
+function updateQueueItemProgress(id, progress) {
+  const item = uploadQueue.find(q => q.id === id);
+  if (item) {
+    item.progress = progress;
+    updateQueueItemUI(id);
+  }
+}
+
+/**
+ * Mark queue item as complete
+ */
+function markQueueItemComplete(id, mediaAsset) {
+  const item = uploadQueue.find(q => q.id === id);
+  if (item) {
+    item.status = 'complete';
+    item.progress = 100;
+    item.mediaAsset = mediaAsset;
+    item.completedAt = Date.now();
+    updateQueueItemUI(id);
+
+    // Add to current event's media if it's the same event
+    if (currentMatchedEvent && currentMatchedEvent.id === item.eventId && mediaAsset) {
+      if (!currentMatchedEvent.media) {
+        currentMatchedEvent.media = [];
+      }
+      currentMatchedEvent.media.push(mediaAsset);
+      renderSavedScreenshots(currentMatchedEvent.media);
+    }
+
+    // Remove from queue after animation completes (1.5s)
+    setTimeout(() => {
+      removeFromUploadQueue(id);
+    }, 1500);
+  }
+}
+
+/**
+ * Mark queue item as failed
+ */
+function markQueueItemFailed(id, error) {
+  const item = uploadQueue.find(q => q.id === id);
+  if (item) {
+    item.status = 'failed';
+    item.error = error;
+    updateQueueItemUI(id);
+    showToast(`Upload failed: ${error}`, 'error');
+  }
+}
+
+/**
+ * Retry a failed upload
+ */
+function retryQueueItem(id) {
+  const item = uploadQueue.find(q => q.id === id);
+  if (item && item.status === 'failed') {
+    item.status = 'uploading';
+    item.progress = 0;
+    item.error = null;
+    updateQueueItemUI(id);
+    uploadQueueItem(item);
+  }
+}
+
+/**
+ * Remove item from upload queue
+ */
+function removeFromUploadQueue(id) {
+  uploadQueue = uploadQueue.filter(q => q.id !== id);
+  renderUploadQueue();
+}
+
+/**
+ * Render the entire upload queue UI
+ */
+function renderUploadQueue() {
+  // Filter to only show active items (uploading or failed, or recently completed)
+  const activeItems = uploadQueue.filter(q => q.status !== 'complete' || Date.now() - q.completedAt < 1500);
+
+  // Show/hide queue based on content
+  if (activeItems.length === 0) {
+    uploadQueueEl.classList.remove('active');
+    document.body.classList.remove('has-upload-queue');
+    return;
+  }
+
+  uploadQueueEl.classList.add('active');
+  document.body.classList.add('has-upload-queue');
+
+  // Update count and title based on status
+  const uploadingCount = uploadQueue.filter(q => q.status === 'uploading').length;
+  const failedCount = uploadQueue.filter(q => q.status === 'failed').length;
+  const queueTitle = uploadQueueEl.querySelector('.upload-queue-title');
+
+  if (failedCount > 0 && uploadingCount === 0) {
+    queueTitle.textContent = failedCount === 1 ? '1 upload failed' : `${failedCount} uploads failed`;
+    uploadQueueCountEl.textContent = failedCount;
+  } else if (uploadingCount > 0) {
+    queueTitle.textContent = 'Uploading...';
+    uploadQueueCountEl.textContent = uploadingCount;
+  } else {
+    queueTitle.textContent = 'Upload complete';
+    uploadQueueCountEl.textContent = uploadQueue.length;
+  }
+
+  // Clear and rebuild items
+  uploadQueueItemsEl.innerHTML = '';
+
+  uploadQueue.forEach(item => {
+    const itemEl = document.createElement('div');
+    itemEl.className = `upload-queue-item ${item.status}`;
+    itemEl.dataset.id = item.id;
+
+    // Thumbnail image
+    const img = document.createElement('img');
+    img.src = item.thumbnail;
+    img.alt = 'Uploading screenshot';
+    itemEl.appendChild(img);
+
+    // Progress ring (shown during upload)
+    if (item.status === 'uploading') {
+      const circumference = 2 * Math.PI * 10; // r=10
+      const dashoffset = circumference - (item.progress / 100) * circumference;
+
+      itemEl.innerHTML += `
+        <svg class="progress-ring" width="24" height="24">
+          <circle class="progress-ring-bg" cx="12" cy="12" r="10"/>
+          <circle class="progress-ring-fill" cx="12" cy="12" r="10"
+            stroke-dasharray="${circumference}"
+            stroke-dashoffset="${dashoffset}"/>
+        </svg>
+      `;
+    }
+
+    // Check icon (shown on complete)
+    const checkIcon = document.createElement('span');
+    checkIcon.className = 'check-icon';
+    checkIcon.textContent = '\u2714';
+    itemEl.appendChild(checkIcon);
+
+    // Retry button (shown on failure)
+    if (item.status === 'failed') {
+      const retryBtn = document.createElement('button');
+      retryBtn.className = 'retry-btn';
+      retryBtn.innerHTML = '\u21bb';
+      retryBtn.title = `Retry: ${item.error || 'Upload failed'}`;
+      retryBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        retryQueueItem(item.id);
+      });
+      itemEl.appendChild(retryBtn);
+    }
+
+    // Event label
+    const label = document.createElement('span');
+    label.className = 'event-label';
+    label.textContent = item.eventName || 'Event';
+    label.title = item.eventName || 'Event';
+    itemEl.appendChild(label);
+
+    uploadQueueItemsEl.appendChild(itemEl);
+  });
+}
+
+/**
+ * Update a single queue item's UI (for progress updates)
+ */
+function updateQueueItemUI(id) {
+  const item = uploadQueue.find(q => q.id === id);
+  if (!item) return;
+
+  const itemEl = uploadQueueItemsEl.querySelector(`[data-id="${id}"]`);
+  if (!itemEl) {
+    // Item not in DOM yet, do full render
+    renderUploadQueue();
+    return;
+  }
+
+  // Update class
+  itemEl.className = `upload-queue-item ${item.status}`;
+
+  // Update progress ring
+  if (item.status === 'uploading') {
+    const progressRing = itemEl.querySelector('.progress-ring-fill');
+    if (progressRing) {
+      const circumference = 2 * Math.PI * 10;
+      const dashoffset = circumference - (item.progress / 100) * circumference;
+      progressRing.setAttribute('stroke-dashoffset', dashoffset);
+    }
+  }
+}
+
+/**
+ * Clear all items from upload queue (for testing/debug)
+ */
+function clearUploadQueue() {
+  uploadQueue = [];
+  renderUploadQueue();
+}
+
+// ============================================================
+// End Upload Queue Functions
+// ============================================================
+
 /**
  * Clear validation errors from event editor fields
  */
@@ -3333,6 +3655,7 @@ async function saveEventChanges() {
 /**
  * Capture and upload screenshot for event
  * Respects the screenshotUploadTiming setting
+ * Uses upload queue for immediate uploads with progress tracking
  */
 async function captureAndUploadEventScreenshot() {
   console.log('[EventAtlas] captureAndUploadEventScreenshot called', {
@@ -3384,7 +3707,7 @@ async function captureAndUploadEventScreenshot() {
       showToast('Screenshot captured (will upload on Save)', 'success');
 
       setTimeout(() => {
-        captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Capture';
+        captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Screenshot';
         captureEventScreenshotBtn.classList.remove('success');
         captureEventScreenshotBtn.disabled = false;
       }, 1500);
@@ -3392,51 +3715,28 @@ async function captureAndUploadEventScreenshot() {
       return;
     }
 
-    // Immediate upload mode
-    captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Uploading...';
+    // Immediate upload mode - use upload queue with progress
+    // Store event info before adding to queue (in case user navigates away)
+    const eventId = currentMatchedEvent.id;
+    const eventName = currentMatchedEvent.name || 'Event';
 
-    const response = await fetch(`${settings.apiUrl}/api/extension/events/${currentMatchedEvent.id}/screenshot`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${settings.apiToken}`,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        image: screenshot,
-        filename: filename,
-      }),
-    });
+    // Add to upload queue (optimistic UI - shows immediately)
+    await addToUploadQueue(eventId, eventName, screenshot, filename);
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `Upload failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    // Add to current event's media
-    if (data.media_asset) {
-      if (!currentMatchedEvent.media) {
-        currentMatchedEvent.media = [];
-      }
-      currentMatchedEvent.media.push(data.media_asset);
-      renderSavedScreenshots(currentMatchedEvent.media);
-    }
-
-    captureEventScreenshotBtn.innerHTML = '<span>&#10003;</span> Uploaded!';
+    // Show quick success feedback on button
+    captureEventScreenshotBtn.innerHTML = '<span>&#10003;</span> Queued!';
     captureEventScreenshotBtn.classList.add('success');
-    showToast('Screenshot uploaded successfully', 'success');
+    showToast('Screenshot queued for upload', 'success');
 
     setTimeout(() => {
-      captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Capture';
+      captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Screenshot';
       captureEventScreenshotBtn.classList.remove('success');
       captureEventScreenshotBtn.disabled = false;
-    }, 1500);
+    }, 1000);
 
   } catch (error) {
     console.error('[EventAtlas] Error capturing screenshot:', error);
-    captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Capture';
+    captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Screenshot';
     captureEventScreenshotBtn.disabled = false;
     showToast(error.message || 'Failed to capture screenshot', 'error');
   }
