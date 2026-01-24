@@ -130,12 +130,18 @@ const urlStatusDetails = document.getElementById('urlStatusDetails');
 
 // DOM Elements - Combined Page Info
 const pageInfoSection = document.getElementById('pageInfoSection');
+const statusSection = document.getElementById('statusSection');
 const pageInfoBadge = document.getElementById('pageInfoBadge');
 const pageInfoBadgeIcon = document.getElementById('pageInfoBadgeIcon');
 const pageInfoBadgeText = document.getElementById('pageInfoBadgeText');
+const statusViewLink = document.getElementById('statusViewLink');
 const pageInfoDetails = document.getElementById('pageInfoDetails');
 const pageInfoEventName = document.getElementById('pageInfoEventName');
 const pageInfoAdminLink = document.getElementById('pageInfoAdminLink');
+
+// DOM Elements - Bundle Section (for conditional visibility)
+const captureButtons = document.getElementById('captureButtons');
+const bundleSection = document.querySelector('.bundle-section');
 
 // DOM Elements - Event Editor
 const eventEditor = document.getElementById('eventEditor');
@@ -154,6 +160,7 @@ const selectedDistancesEl = document.getElementById('selectedDistances');
 const editorNotes = document.getElementById('editorNotes');
 const editorSaveBtn = document.getElementById('editorSaveBtn');
 const captureEventScreenshotBtn = document.getElementById('captureEventScreenshotBtn');
+const captureEventHtmlBtn = document.getElementById('captureEventHtmlBtn');
 const savedScreenshotsEl = document.getElementById('savedScreenshots');
 
 // Event Editor State
@@ -591,10 +598,10 @@ function renderUrlStatusDetails(eventName, eventId) {
 }
 
 /**
- * Update the combined page info badge
+ * Update the combined page info badge and status section visibility
  */
 function updatePageInfoBadge(type, text, icon = null) {
-  pageInfoBadge.style.display = 'inline-flex';
+  statusSection.style.display = 'flex';
   pageInfoBadge.className = 'page-info-badge ' + type;
   pageInfoBadgeText.textContent = text;
   if (icon) {
@@ -603,31 +610,55 @@ function updatePageInfoBadge(type, text, icon = null) {
 }
 
 /**
- * Update the page info details section
+ * Show or hide the View link under the status badge
  */
-function updatePageInfoDetails(eventName, eventId) {
-  if (eventName || eventId) {
-    pageInfoDetails.style.display = 'block';
-    pageInfoEventName.textContent = eventName || '';
-    pageInfoEventName.title = eventName || '';
-
-    if (eventId) {
-      const adminUrl = buildAdminEditUrl(eventId);
-      if (adminUrl) {
-        pageInfoAdminLink.href = adminUrl;
-        pageInfoAdminLink.style.display = 'inline-flex';
-        pageInfoAdminLink.onclick = (e) => {
-          e.preventDefault();
-          window.open(adminUrl, '_blank');
-        };
-      } else {
-        pageInfoAdminLink.style.display = 'none';
-      }
+function updateStatusViewLink(eventId) {
+  if (eventId) {
+    const adminUrl = buildAdminEditUrl(eventId);
+    if (adminUrl) {
+      statusViewLink.href = adminUrl;
+      statusViewLink.style.display = 'inline';
+      statusViewLink.onclick = (e) => {
+        e.preventDefault();
+        window.open(adminUrl, '_blank');
+      };
     } else {
-      pageInfoAdminLink.style.display = 'none';
+      statusViewLink.style.display = 'none';
     }
   } else {
-    pageInfoDetails.style.display = 'none';
+    statusViewLink.style.display = 'none';
+  }
+}
+
+/**
+ * Show or hide the bundle UI based on whether an event is matched
+ */
+function updateBundleUIVisibility(isEventMatched) {
+  if (isEventMatched) {
+    // Hide bundle UI when event is matched
+    if (captureButtons) captureButtons.style.display = 'none';
+    if (bundleSection) bundleSection.style.display = 'none';
+  } else {
+    // Show bundle UI when no event matched
+    if (captureButtons) captureButtons.style.display = 'block';
+    if (bundleSection) bundleSection.style.display = 'block';
+    // Also update the capture buttons visibility based on settings
+    updateCaptureButtonsVisibility();
+  }
+}
+
+/**
+ * Update the page info details section (legacy - kept for backward compatibility)
+ * The actual display is now handled by updateStatusViewLink and the status section
+ */
+function updatePageInfoDetails(eventName, eventId) {
+  // Legacy section is now always hidden - display handled by status section
+  pageInfoDetails.style.display = 'none';
+
+  // Store values for legacy compatibility
+  if (eventName) {
+    pageInfoEventName.textContent = eventName || '';
+    pageInfoEventName.title = eventName || '';
   }
 }
 
@@ -635,8 +666,11 @@ function updatePageInfoDetails(eventName, eventId) {
  * Hide page info badge and details
  */
 function hidePageInfoStatus() {
-  pageInfoBadge.style.display = 'none';
+  statusSection.style.display = 'none';
+  statusViewLink.style.display = 'none';
   pageInfoDetails.style.display = 'none';
+  // Show bundle UI when status is hidden
+  updateBundleUIVisibility(false);
 }
 
 /**
@@ -663,7 +697,8 @@ async function updateUrlStatus() {
   if (eventAtlasMatch) {
     // Show loading state
     updatePageInfoBadge('loading', 'Checking...', '\u22EF');
-    updatePageInfoDetails(null, null);
+    updateStatusViewLink(null);
+    updateBundleUIVisibility(false);
 
     // For EventAtlas URLs, we can fetch event details directly
     // Still use lookup API which will match, but we know it's our own page
@@ -671,12 +706,14 @@ async function updateUrlStatus() {
       const result = await lookupUrl(tab.url);
       if (result && result.match_type === 'event' && result.event) {
         updatePageInfoBadge('event', 'EventAtlas Event', '\u2713');
-        updatePageInfoDetails(result.event.title, result.event.id);
+        updateStatusViewLink(result.event.id);
+        updateBundleUIVisibility(true);
         showEventEditor(result.event);
       } else {
         // EventAtlas URL but no match found (maybe event deleted)
         updatePageInfoBadge('no-match', 'EventAtlas Page', '\u25CB');
-        updatePageInfoDetails(eventAtlasMatch.type === 'admin' ? 'Admin page' : 'Event page', null);
+        updateStatusViewLink(null);
+        updateBundleUIVisibility(false);
         hideEventEditor();
       }
     } catch (error) {
@@ -689,27 +726,32 @@ async function updateUrlStatus() {
 
   // Show loading state for external URLs
   updatePageInfoBadge('loading', 'Checking...', '\u22EF');
-  updatePageInfoDetails(null, null);
+  updateStatusViewLink(null);
+  updateBundleUIVisibility(false);
 
   try {
     const result = await lookupUrl(tab.url);
 
     if (!result || result.match_type === 'no_match') {
       updatePageInfoBadge('no-match', 'New Page', '\u25CB');
-      updatePageInfoDetails(null, null);
+      updateStatusViewLink(null);
+      updateBundleUIVisibility(false);
       hideEventEditor();
     } else if (result.match_type === 'event') {
       updatePageInfoBadge('event', 'Known Event', '\u2713');
-      updatePageInfoDetails(result.event?.title, result.event?.id);
+      updateStatusViewLink(result.event?.id);
+      updateBundleUIVisibility(true);
       // Show event editor
       showEventEditor(result.event);
     } else if (result.match_type === 'link_discovery') {
       updatePageInfoBadge('link-discovery', 'Discovery', '\u2295');
-      updatePageInfoDetails(result.organizer_link?.organizer_name || '', null);
+      updateStatusViewLink(null);
+      updateBundleUIVisibility(false);
       hideEventEditor();
     } else if (result.match_type === 'content_item') {
       updatePageInfoBadge('content-item', 'Scraped', '\u25D0');
-      updatePageInfoDetails('Scraped but not yet processed', null);
+      updateStatusViewLink(null);
+      updateBundleUIVisibility(false);
       hideEventEditor();
     }
   } catch (error) {
@@ -3219,6 +3261,17 @@ if (captureEventScreenshotBtn) {
   });
 } else {
   console.error('[EventAtlas] captureEventScreenshotBtn not found in DOM');
+}
+
+// Capture HTML button in accordion - placeholder for future functionality
+if (captureEventHtmlBtn) {
+  captureEventHtmlBtn.addEventListener('click', (e) => {
+    e.stopPropagation(); // Prevent event from bubbling to accordion header
+    console.log('[EventAtlas] Capture HTML button clicked');
+    showToast('HTML capture coming soon', 'success');
+  });
+} else {
+  console.error('[EventAtlas] captureEventHtmlBtn not found in DOM');
 }
 
 // Clear validation error when event type is selected

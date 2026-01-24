@@ -93,7 +93,7 @@
     /* Combined page info section */
     .page-info-section {
       padding: 12px;
-      margin-bottom: 16px;
+      margin-bottom: 12px;
       background: #f3f4f6;
       border-radius: 8px;
       font-size: 13px;
@@ -132,6 +132,20 @@
       overflow: hidden;
     }
 
+    /* Status section (separate from page info) */
+    .status-section {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 12px;
+    }
+
+    .status-section-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 4px;
+    }
+
     .page-info-badge {
       flex-shrink: 0;
       display: inline-flex;
@@ -168,6 +182,17 @@
     .page-info-badge.loading {
       background: #f3f4f6;
       color: #6b7280;
+    }
+
+    .status-view-link {
+      font-size: 12px;
+      color: #3b82f6;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .status-view-link:hover {
+      text-decoration: underline;
     }
 
     .page-info-details {
@@ -1809,6 +1834,54 @@
       display: block;
     }
 
+    /* Editor action buttons row */
+    .editor-action-buttons {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .editor-action-btn {
+      flex: 1;
+      padding: 10px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .editor-action-btn.screenshot {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      color: #78350f;
+    }
+
+    .editor-action-btn.screenshot:hover {
+      background: #fde68a;
+      border-color: #f59e0b;
+    }
+
+    .editor-action-btn.html-capture {
+      background: #dbeafe;
+      border: 1px solid #93c5fd;
+      color: #1e40af;
+    }
+
+    .editor-action-btn.html-capture:hover {
+      background: #bfdbfe;
+      border-color: #60a5fa;
+    }
+
+    .editor-action-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
     /* Screenshot capture section */
     .screenshot-capture-section {
       margin-top: 16px;
@@ -2256,16 +2329,25 @@
           <div class="page-info-title" id="pageTitle">Loading...</div>
           <div class="page-info-url" id="pageUrl"></div>
         </div>
-        <span class="page-info-badge loading" id="pageInfoBadge" style="display: none;">
+      </div>
+    </div>
+
+    <!-- Status section (right-aligned badge + View link) -->
+    <div class="status-section" id="statusSection" style="display: none;">
+      <div class="status-section-inner">
+        <span class="page-info-badge loading" id="pageInfoBadge">
           <span id="pageInfoBadgeIcon">&#8943;</span>
           <span id="pageInfoBadgeText">Checking...</span>
         </span>
+        <a class="status-view-link" id="statusViewLink" href="#" target="_blank" style="display: none;">View &#8594;</a>
       </div>
-      <div class="page-info-details" id="pageInfoDetails" style="display: none;">
-        <div class="page-info-details-row">
-          <span class="page-info-event-name" id="pageInfoEventName"></span>
-          <a class="admin-link" id="pageInfoAdminLink" href="#" target="_blank" style="display: none;">View &#8594;</a>
-        </div>
+    </div>
+
+    <!-- Legacy page info details (hidden, kept for JS compatibility) -->
+    <div class="page-info-details" id="pageInfoDetails" style="display: none;">
+      <div class="page-info-details-row">
+        <span class="page-info-event-name" id="pageInfoEventName"></span>
+        <a class="admin-link" id="pageInfoAdminLink" href="#" target="_blank" style="display: none;">View &#8594;</a>
       </div>
     </div>
 
@@ -2282,8 +2364,7 @@
         <div class="event-editor-header-left">
           <span class="event-editor-chevron" id="eventEditorChevron">&#9660;</span>
           <div class="event-editor-header-info">
-            <div class="event-editor-title">Edit Event</div>
-            <div class="event-editor-event-name" id="editorEventName"></div>
+            <div class="event-editor-event-name" id="editorEventName" style="font-weight: 600; font-size: 14px; color: #166534;"></div>
           </div>
         </div>
       </div>
@@ -2336,22 +2417,29 @@
             <textarea class="editor-textarea" id="editorNotes" placeholder="Add notes about this event..."></textarea>
           </div>
 
+          <!-- Action buttons row (Screenshot + Capture HTML) -->
+          <div class="editor-section">
+            <div class="editor-action-buttons">
+              <button class="editor-action-btn screenshot" id="captureEventScreenshotBtn">
+                <span>&#128247;</span> Screenshot
+              </button>
+              <button class="editor-action-btn html-capture" id="captureEventHtmlBtn">
+                <span>&#128196;</span> Capture HTML
+              </button>
+            </div>
+          </div>
+
+          <!-- Screenshots grid -->
+          <div class="editor-section" id="screenshotsSection">
+            <label class="editor-label">Screenshots</label>
+            <div id="savedScreenshots" class="saved-screenshots">
+              <div class="no-screenshots">No screenshots yet</div>
+            </div>
+          </div>
+
           <!-- Save button -->
           <div class="editor-section">
             <button class="editor-save-btn" id="editorSaveBtn">Save Changes</button>
-          </div>
-        </div>
-
-        <!-- Screenshot capture section -->
-        <div class="screenshot-capture-section">
-          <div class="screenshot-capture-header">
-            <span class="screenshot-capture-title">Screenshots</span>
-            <button class="capture-screenshot-btn" id="captureEventScreenshotBtn">
-              <span>&#128247;</span> Capture
-            </button>
-          </div>
-          <div id="savedScreenshots" class="saved-screenshots">
-            <div class="no-screenshots">No screenshots yet</div>
           </div>
         </div>
       </div>
