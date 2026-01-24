@@ -149,6 +149,10 @@ const eventEditorAccordionHeader = document.getElementById('eventEditorAccordion
 const eventEditorChevron = document.getElementById('eventEditorChevron');
 const eventEditorContent = document.getElementById('eventEditorContent');
 const editorEventName = document.getElementById('editorEventName');
+const editorPageTitle = document.getElementById('editorPageTitle');
+const editorPageUrl = document.getElementById('editorPageUrl');
+const editorBadge = document.getElementById('editorBadge');
+const editorViewLink = document.getElementById('editorViewLink');
 const editorLoading = document.getElementById('editorLoading');
 const editorContent = document.getElementById('editorContent');
 const editorEventType = document.getElementById('editorEventType');
@@ -632,14 +636,22 @@ function updateStatusViewLink(eventId) {
 
 /**
  * Show or hide the bundle UI based on whether an event is matched
+ * Note: status section visibility is controlled by updatePageInfoBadge/hidePageInfoStatus,
+ * not here, to avoid conflicts with "no API configured" state
  */
 function updateBundleUIVisibility(isEventMatched) {
   if (isEventMatched) {
-    // Hide bundle UI when event is matched
+    // Hide page info, status section, and bundle UI when event is matched
+    // (page info is now shown in the event editor accordion header)
+    if (pageInfoSection) pageInfoSection.style.display = 'none';
+    if (statusSection) statusSection.style.display = 'none';
     if (captureButtons) captureButtons.style.display = 'none';
     if (bundleSection) bundleSection.style.display = 'none';
   } else {
-    // Show bundle UI when no event matched
+    // Show page info and bundle UI when no event matched
+    // Note: status section visibility is NOT changed here - it's controlled by
+    // updatePageInfoBadge (shows) and hidePageInfoStatus (hides)
+    if (pageInfoSection) pageInfoSection.style.display = 'block';
     if (captureButtons) captureButtons.style.display = 'block';
     if (bundleSection) bundleSection.style.display = 'block';
     // Also update the capture buttons visibility based on settings
@@ -2424,8 +2436,38 @@ async function showEventEditor(event) {
   editorLoading.style.display = 'flex';
   editorContent.style.display = 'none';
 
-  // Set event name
+  // Set event name (legacy element, hidden)
   editorEventName.textContent = event.title || event.name || 'Untitled Event';
+
+  // Populate accordion header with current page info
+  // Use the current page title (from the tab), not the event name from API
+  if (editorPageTitle) {
+    editorPageTitle.textContent = pageTitleEl.textContent || 'Unknown Page';
+  }
+  if (editorPageUrl) {
+    editorPageUrl.textContent = pageUrlEl.textContent || '';
+  }
+
+  // Set up the badge
+  if (editorBadge) {
+    editorBadge.innerHTML = '&#10003; Known Event';
+  }
+
+  // Set up the View link
+  if (editorViewLink) {
+    const adminUrl = buildAdminEditUrl(event.id);
+    if (adminUrl) {
+      editorViewLink.href = adminUrl;
+      editorViewLink.style.display = 'inline';
+      editorViewLink.onclick = (e) => {
+        e.stopPropagation(); // Prevent accordion toggle
+        window.open(adminUrl, '_blank');
+        e.preventDefault();
+      };
+    } else {
+      editorViewLink.style.display = 'none';
+    }
+  }
 
   // Always expand when showing for a new event match
   eventEditorExpanded = true;
