@@ -689,6 +689,15 @@
       color: #f59e0b;
     }
 
+    .header-btn.loading {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
     /* Settings panel */
     .settings-panel {
       display: none;
@@ -2149,6 +2158,7 @@
     <h1 id="headerTitle">EventAtlas Capture</h1>
     <div class="header-buttons">
       <span class="header-badge" id="captureBadge">No captures</span>
+      <button class="header-btn" id="refreshBtn" title="Refresh page data">&#8635;</button>
       <button class="header-btn" id="settingsBtn" title="Settings">&#9881;</button>
     </div>
   </div>

@@ -50,6 +50,7 @@ const backNavText = document.getElementById('backNavText');
 
 // DOM Elements - Settings
 const settingsBtn = document.getElementById('settingsBtn');
+const refreshBtn = document.getElementById('refreshBtn');
 const settingsPanel = document.getElementById('settingsPanel');
 const autoGroupSetting = document.getElementById('autoGroupSetting');
 const screenshotDefaultSetting = document.getElementById('screenshotDefaultSetting');
@@ -1864,6 +1865,52 @@ settingsBtn.addEventListener('click', () => {
   settingsBtn.classList.toggle('active');
 });
 
+/**
+ * Refresh page data - reload lookup, tags, event types, and distances from API
+ */
+async function refreshPageData() {
+  if (refreshBtn.classList.contains('loading')) return; // Prevent double-click
+
+  refreshBtn.classList.add('loading');
+
+  try {
+    // Clear cached editor options to force reload
+    availableTags = [];
+    availableEventTypes = [];
+    availableDistances = [];
+
+    // Sync with API (refresh local cache)
+    const syncResult = await syncWithApi();
+    if (syncResult) {
+      console.log('[EventAtlas] Refresh - Sync completed:', {
+        events: syncResult.events?.length || 0,
+        organizerLinks: syncResult.organizer_links?.length || 0,
+      });
+    }
+
+    // Update URL status (will call lookup API and potentially show event editor)
+    await updateUrlStatus();
+
+    // If we have an event editor visible, reload its options
+    if (currentMatchedEvent) {
+      await loadEditorOptions();
+      // Re-render editor with fresh data
+      renderTagsChips();
+      renderDistanceButtons();
+      renderSelectedDistances();
+    }
+
+    showToast('Page data refreshed', 'success');
+  } catch (error) {
+    console.error('[EventAtlas] Refresh error:', error);
+    showToast('Failed to refresh data', 'error');
+  } finally {
+    refreshBtn.classList.remove('loading');
+  }
+}
+
+refreshBtn.addEventListener('click', refreshPageData);
+
 autoGroupSetting.addEventListener('change', async () => {
   settings.autoGroupByDomain = autoGroupSetting.checked;
   await saveToStorage();
@@ -3051,6 +3098,12 @@ async function saveEventChanges() {
  * Respects the screenshotUploadTiming setting
  */
 async function captureAndUploadEventScreenshot() {
+  console.log('[EventAtlas] captureAndUploadEventScreenshot called', {
+    hasMatchedEvent: !!currentMatchedEvent,
+    hasApiUrl: !!settings.apiUrl,
+    hasApiToken: !!settings.apiToken,
+  });
+
   if (!currentMatchedEvent || !settings.apiUrl || !settings.apiToken) {
     showToast('Cannot capture - no event selected or API not configured', 'error');
     return;
@@ -3156,7 +3209,17 @@ async function captureAndUploadEventScreenshot() {
 eventEditorAccordionHeader.addEventListener('click', toggleEventEditorAccordion);
 editorSaveBtn.addEventListener('click', saveEventChanges);
 addCustomDistanceBtn.addEventListener('click', addCustomDistance);
-captureEventScreenshotBtn.addEventListener('click', captureAndUploadEventScreenshot);
+
+// Capture screenshot button in accordion - add defensive check
+if (captureEventScreenshotBtn) {
+  captureEventScreenshotBtn.addEventListener('click', (e) => {
+    e.stopPropagation(); // Prevent event from bubbling to accordion header
+    console.log('[EventAtlas] Capture button clicked');
+    captureAndUploadEventScreenshot();
+  });
+} else {
+  console.error('[EventAtlas] captureEventScreenshotBtn not found in DOM');
+}
 
 // Clear validation error when event type is selected
 editorEventType.addEventListener('change', () => {
