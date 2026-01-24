@@ -1532,6 +1532,27 @@
       background: #ef4444;
     }
 
+    /* Field validation error styles */
+    .field-error {
+      border: 2px solid #ef4444 !important;
+      background-color: #fef2f2 !important;
+    }
+
+    .field-error:focus {
+      box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2) !important;
+    }
+
+    .error-message-inline {
+      color: #ef4444;
+      font-size: 12px;
+      margin-top: 4px;
+      display: none;
+    }
+
+    .error-message-inline.visible {
+      display: block;
+    }
+
     /* Screenshot capture section */
     .screenshot-capture-section {
       margin-top: 16px;
@@ -1772,10 +1793,11 @@
       <div id="editorContent">
         <!-- Event Type -->
         <div class="editor-section">
-          <label class="editor-label">Event Type</label>
+          <label class="editor-label">Event Type <span style="color: #ef4444;">*</span></label>
           <select class="editor-select" id="editorEventType">
             <option value="">-- Select type --</option>
           </select>
+          <div id="eventTypeError" class="error-message-inline">Event type is required</div>
         </div>
 
         <!-- Tags -->

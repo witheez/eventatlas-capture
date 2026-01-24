@@ -2207,11 +2207,39 @@ function renderSavedScreenshots(media) {
 }
 
 /**
+ * Clear validation errors from event editor fields
+ */
+function clearValidationErrors() {
+  editorEventType.classList.remove('field-error');
+  document.getElementById('eventTypeError').classList.remove('visible');
+}
+
+/**
+ * Show validation error on a field
+ */
+function showFieldError(field, errorId) {
+  field.classList.add('field-error');
+  document.getElementById(errorId).classList.add('visible');
+  field.focus();
+}
+
+/**
  * Save event changes to API
  */
 async function saveEventChanges() {
   if (!currentMatchedEvent || !settings.apiUrl || !settings.apiToken) {
     showToast('Cannot save - no event selected or API not configured', 'error');
+    return;
+  }
+
+  // Clear previous validation errors
+  clearValidationErrors();
+
+  // Validate required fields
+  const eventTypeId = editorEventType.value;
+  if (!eventTypeId) {
+    showFieldError(editorEventType, 'eventTypeError');
+    showToast('Please select an event type', 'error');
     return;
   }
 
@@ -2356,6 +2384,12 @@ async function captureAndUploadEventScreenshot() {
 editorSaveBtn.addEventListener('click', saveEventChanges);
 addCustomDistanceBtn.addEventListener('click', addCustomDistance);
 captureEventScreenshotBtn.addEventListener('click', captureAndUploadEventScreenshot);
+
+// Clear validation error when event type is selected
+editorEventType.addEventListener('change', () => {
+  editorEventType.classList.remove('field-error');
+  document.getElementById('eventTypeError').classList.remove('visible');
+});
 
 // Handle Enter key on custom distance input
 customDistanceInput.addEventListener('keydown', (e) => {
