@@ -3003,6 +3003,31 @@ function renderSavedScreenshots(media) {
     savedScreenshotsEl.appendChild(div);
   });
 
+  // Render uploading screenshots (from upload queue)
+  const uploadingForEvent = uploadQueue.filter(q =>
+    q.eventId === currentMatchedEvent?.id &&
+    q.status === 'uploading'
+  );
+
+  uploadingForEvent.forEach((item) => {
+    const div = document.createElement('div');
+    div.className = 'saved-screenshot-item uploading';
+    div.dataset.queueId = item.id;
+
+    const img = document.createElement('img');
+    img.src = item.thumbnail;
+    img.alt = 'Uploading...';
+    div.appendChild(img);
+
+    // Overlay with progress
+    const overlay = document.createElement('div');
+    overlay.className = 'upload-overlay';
+    overlay.innerHTML = `<span>${item.progress}%</span>`;
+    div.appendChild(overlay);
+
+    savedScreenshotsEl.appendChild(div);
+  });
+
   // Render pending screenshots section if any
   if (pendingScreenshots.length > 0) {
     renderPendingScreenshots();
@@ -3277,6 +3302,11 @@ async function addToUploadQueue(eventId, eventName, imageData, filename) {
   uploadQueue.push(queueItem);
   renderUploadQueue();
 
+  // Re-render screenshots grid to show uploading item
+  if (currentMatchedEvent && currentMatchedEvent.id === eventId) {
+    renderSavedScreenshots(currentMatchedEvent.media || []);
+  }
+
   // Start upload in background
   uploadQueueItem(queueItem);
 
@@ -3344,6 +3374,12 @@ function updateQueueItemProgress(id, progress) {
   if (item) {
     item.progress = progress;
     updateQueueItemUI(id);
+
+    // Also update grid overlay if visible
+    const gridItem = savedScreenshotsEl?.querySelector(`[data-queue-id="${id}"] .upload-overlay span`);
+    if (gridItem) {
+      gridItem.textContent = `${progress}%`;
+    }
   }
 }
 

@@ -2164,6 +2164,25 @@
       background: #dc2626;
     }
 
+    /* Uploading screenshot overlay */
+    .saved-screenshot-item.uploading {
+      position: relative;
+      opacity: 0.9;
+    }
+
+    .saved-screenshot-item .upload-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 4px;
+    }
+
     /* Pending screenshots section */
     .pending-screenshots-section {
       margin-top: 8px;
