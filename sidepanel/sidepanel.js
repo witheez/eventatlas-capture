@@ -192,30 +192,47 @@ function escapeRegex(str) {
 }
 
 /**
+ * Known EventAtlas domains (production, staging, local)
+ * These are checked in addition to settings.apiUrl
+ */
+const KNOWN_EVENTATLAS_DOMAINS = [
+  'https://www.eventatlas.co',
+  'https://eventatlas.co',
+  'https://eventatlasco-staging.up.railway.app',
+  'https://ongoingevents-production.up.railway.app',
+  'http://eventatlas.test',
+  'https://eventatlas.test',
+];
+
+/**
  * Check if a URL is an EventAtlas URL (our own admin or frontend)
  * Returns { type: 'admin' | 'frontend', eventId: number } or null
  */
 function checkIfEventAtlasUrl(url) {
-  const apiUrl = settings.apiUrl;
-  if (!apiUrl) return null;
+  // Build list of domains to check: known domains + settings.apiUrl
+  const domainsToCheck = [...KNOWN_EVENTATLAS_DOMAINS];
+  if (settings.apiUrl) {
+    domainsToCheck.push(settings.apiUrl.replace(/\/$/, ''));
+  }
 
-  try {
-    // Normalize the API URL for matching
-    const escapedApiUrl = escapeRegex(apiUrl.replace(/\/$/, ''));
+  for (const domain of domainsToCheck) {
+    try {
+      const escapedDomain = escapeRegex(domain.replace(/\/$/, ''));
 
-    // Check admin event URLs: /admin/v2/events/{id} or /admin/v2/events/{id}/edit
-    const adminMatch = url.match(new RegExp(`${escapedApiUrl}/admin/v2/events/(\\d+)`));
-    if (adminMatch) {
-      return { type: 'admin', eventId: parseInt(adminMatch[1], 10) };
+      // Check admin event URLs: /admin/v2/events/{id} or /admin/v2/events/{id}/edit
+      const adminMatch = url.match(new RegExp(`${escapedDomain}/admin/v2/events/(\\d+)`));
+      if (adminMatch) {
+        return { type: 'admin', eventId: parseInt(adminMatch[1], 10) };
+      }
+
+      // Check frontend event URLs: /events/{id-or-slug}
+      const frontendMatch = url.match(new RegExp(`${escapedDomain}/events/([^/]+)`));
+      if (frontendMatch) {
+        return { type: 'frontend', eventIdOrSlug: frontendMatch[1] };
+      }
+    } catch (e) {
+      console.warn('[EventAtlas] Error checking domain:', domain, e);
     }
-
-    // Check frontend event URLs: /events/{id-or-slug}
-    const frontendMatch = url.match(new RegExp(`${escapedApiUrl}/events/([^/]+)`));
-    if (frontendMatch) {
-      return { type: 'frontend', eventIdOrSlug: frontendMatch[1] };
-    }
-  } catch (e) {
-    console.warn('[EventAtlas] Error checking EventAtlas URL:', e);
   }
 
   return null;
@@ -223,10 +240,12 @@ function checkIfEventAtlasUrl(url) {
 
 /**
  * Build admin edit URL for an event
+ * Prefers eventatlas.co for production, falls back to apiUrl
  */
 function buildAdminEditUrl(eventId) {
-  if (!settings.apiUrl || !eventId) return null;
-  const baseUrl = settings.apiUrl.replace(/\/$/, '');
+  if (!eventId) return null;
+  // Prefer the production domain for admin links
+  const baseUrl = 'https://www.eventatlas.co';
   return `${baseUrl}/admin/v2/events/${eventId}/edit`;
 }
 
