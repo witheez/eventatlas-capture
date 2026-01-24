@@ -116,6 +116,9 @@ const removeBtn = document.getElementById('removeBtn');
 // DOM Elements - Toast
 const toastEl = document.getElementById('toast');
 
+// DOM Elements - Header
+const headerTitle = document.getElementById('headerTitle');
+
 // DOM Elements - URL Status
 const urlStatusContainer = document.getElementById('urlStatusContainer');
 const urlStatusBadge = document.getElementById('urlStatusBadge');
@@ -179,6 +182,52 @@ function normalizeUrl(url) {
   } catch (e) {
     return url.toLowerCase();
   }
+}
+
+/**
+ * Escape special regex characters in a string
+ */
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Check if a URL is an EventAtlas URL (our own admin or frontend)
+ * Returns { type: 'admin' | 'frontend', eventId: number } or null
+ */
+function checkIfEventAtlasUrl(url) {
+  const apiUrl = settings.apiUrl;
+  if (!apiUrl) return null;
+
+  try {
+    // Normalize the API URL for matching
+    const escapedApiUrl = escapeRegex(apiUrl.replace(/\/$/, ''));
+
+    // Check admin event URLs: /admin/v2/events/{id} or /admin/v2/events/{id}/edit
+    const adminMatch = url.match(new RegExp(`${escapedApiUrl}/admin/v2/events/(\\d+)`));
+    if (adminMatch) {
+      return { type: 'admin', eventId: parseInt(adminMatch[1], 10) };
+    }
+
+    // Check frontend event URLs: /events/{id-or-slug}
+    const frontendMatch = url.match(new RegExp(`${escapedApiUrl}/events/([^/]+)`));
+    if (frontendMatch) {
+      return { type: 'frontend', eventIdOrSlug: frontendMatch[1] };
+    }
+  } catch (e) {
+    console.warn('[EventAtlas] Error checking EventAtlas URL:', e);
+  }
+
+  return null;
+}
+
+/**
+ * Build admin edit URL for an event
+ */
+function buildAdminEditUrl(eventId) {
+  if (!settings.apiUrl || !eventId) return null;
+  const baseUrl = settings.apiUrl.replace(/\/$/, '');
+  return `${baseUrl}/admin/v2/events/${eventId}/edit`;
 }
 
 /**
@@ -436,6 +485,48 @@ async function lookupUrl(url) {
 }
 
 /**
+ * Render URL status details with optional admin link
+ */
+function renderUrlStatusDetails(eventName, eventId) {
+  urlStatusDetails.innerHTML = '';
+
+  if (eventId) {
+    // Create row with event name and admin link
+    const row = document.createElement('div');
+    row.className = 'url-status-row';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'url-status-event-name';
+    nameSpan.textContent = eventName || '';
+    nameSpan.title = eventName || '';
+
+    const adminUrl = buildAdminEditUrl(eventId);
+    if (adminUrl) {
+      const link = document.createElement('a');
+      link.className = 'admin-link';
+      link.href = adminUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.innerHTML = 'View \u2192';
+      link.title = 'Open in Admin';
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.open(adminUrl, '_blank');
+      });
+
+      row.appendChild(nameSpan);
+      row.appendChild(link);
+    } else {
+      row.appendChild(nameSpan);
+    }
+
+    urlStatusDetails.appendChild(row);
+  } else {
+    urlStatusDetails.textContent = eventName || '';
+  }
+}
+
+/**
  * Update URL status indicator based on current tab URL
  */
 async function updateUrlStatus() {
@@ -454,7 +545,40 @@ async function updateUrlStatus() {
     return;
   }
 
-  // Show loading state
+  // Check if this is an EventAtlas URL first
+  const eventAtlasMatch = checkIfEventAtlasUrl(tab.url);
+  if (eventAtlasMatch) {
+    // Show loading state
+    urlStatusContainer.style.display = 'block';
+    urlStatusBadge.className = 'url-status-badge loading';
+    urlStatusBadge.textContent = '\u22EF Checking...';
+    urlStatusDetails.textContent = '';
+
+    // For EventAtlas URLs, we can fetch event details directly
+    // Still use lookup API which will match, but we know it's our own page
+    try {
+      const result = await lookupUrl(tab.url);
+      if (result && result.match_type === 'event' && result.event) {
+        urlStatusBadge.className = 'url-status-badge event';
+        urlStatusBadge.textContent = '\u2713 EventAtlas Event';
+        renderUrlStatusDetails(result.event.title, result.event.id);
+        showEventEditor(result.event);
+      } else {
+        // EventAtlas URL but no match found (maybe event deleted)
+        urlStatusBadge.className = 'url-status-badge no-match';
+        urlStatusBadge.textContent = '\u25CB EventAtlas Page';
+        urlStatusDetails.textContent = eventAtlasMatch.type === 'admin' ? 'Admin page' : 'Event page';
+        hideEventEditor();
+      }
+    } catch (error) {
+      console.error('[EventAtlas] Status update error:', error);
+      urlStatusContainer.style.display = 'none';
+      hideEventEditor();
+    }
+    return;
+  }
+
+  // Show loading state for external URLs
   urlStatusContainer.style.display = 'block';
   urlStatusBadge.className = 'url-status-badge loading';
   urlStatusBadge.textContent = '\u22EF Checking...';
@@ -471,7 +595,7 @@ async function updateUrlStatus() {
     } else if (result.match_type === 'event') {
       urlStatusBadge.className = 'url-status-badge event';
       urlStatusBadge.textContent = '\u2713 Known Event';
-      urlStatusDetails.textContent = result.event?.title || '';
+      renderUrlStatusDetails(result.event?.title, result.event?.id);
       // Show event editor
       showEventEditor(result.event);
     } else if (result.match_type === 'link_discovery') {
@@ -2399,8 +2523,22 @@ customDistanceInput.addEventListener('keydown', (e) => {
   }
 });
 
+/**
+ * Display version number from manifest in header
+ */
+function displayVersion() {
+  const manifest = chrome.runtime.getManifest();
+  const version = manifest.version;
+  if (headerTitle) {
+    headerTitle.textContent = `EventAtlas Capture (v${version})`;
+  }
+}
+
 // Initialize
 async function init() {
+  // Display version in header
+  displayVersion();
+
   await updateTabInfo();
   await loadFromStorage();
 

@@ -1282,6 +1282,40 @@
       margin-top: 4px;
     }
 
+    .url-status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .url-status-event-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .admin-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: #3b82f6;
+      text-decoration: none;
+      padding: 2px 6px;
+      background: #eff6ff;
+      border-radius: 4px;
+      white-space: nowrap;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .admin-link:hover {
+      background: #dbeafe;
+      color: #2563eb;
+    }
+
     /* Event Editor Section */
     .event-editor {
       display: none;
@@ -1679,7 +1713,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>EventAtlas Capture</h1>
+    <h1 id="headerTitle">EventAtlas Capture</h1>
     <div class="header-buttons">
       <span class="header-badge" id="captureBadge">No captures</span>
       <button class="header-btn" id="settingsBtn" title="Settings">&#9881;</button>
