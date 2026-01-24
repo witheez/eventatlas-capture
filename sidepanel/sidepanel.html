@@ -762,6 +762,47 @@
       margin-top: 2px;
     }
 
+    /* Distance preset toggle chips in settings */
+    .distance-preset-toggles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .distance-preset-chip {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 16px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: inherit;
+      transition: all 0.2s;
+      border: none;
+    }
+
+    .distance-preset-chip.enabled {
+      background: #f59e0b;
+      color: white;
+    }
+
+    .distance-preset-chip.enabled:hover {
+      background: #d97706;
+    }
+
+    .distance-preset-chip.disabled {
+      background: transparent;
+      border: 1px dashed #d1d5db;
+      color: #9ca3af;
+      opacity: 0.7;
+    }
+
+    .distance-preset-chip.disabled:hover {
+      border-color: #9ca3af;
+      opacity: 1;
+    }
+
     /* Toggle switches */
     .toggle-row {
       display: flex;
@@ -2361,9 +2402,19 @@
     </div>
 
     <div class="setting-row setting-row-vertical">
-      <div class="setting-label">Custom Distance Presets</div>
-      <div class="setting-desc">Add your frequently used distances (comma-separated km values)</div>
-      <input type="text" class="setting-input" id="customDistancePresets" placeholder="e.g., 25, 35, 70">
+      <div class="setting-label">Distance Presets</div>
+      <div class="setting-desc">Click to enable/disable. Disabled distances won't appear in the editor.</div>
+      <div class="distance-preset-toggles" id="distancePresetToggles">
+        <button type="button" class="distance-preset-chip enabled" data-value="5">5K</button>
+        <button type="button" class="distance-preset-chip enabled" data-value="10">10K</button>
+        <button type="button" class="distance-preset-chip enabled" data-value="21">HM</button>
+        <button type="button" class="distance-preset-chip enabled" data-value="42">FM</button>
+        <button type="button" class="distance-preset-chip enabled" data-value="50">50K</button>
+        <button type="button" class="distance-preset-chip enabled" data-value="100">100K</button>
+        <button type="button" class="distance-preset-chip enabled" data-value="161">100M</button>
+      </div>
+      <div class="setting-desc" style="margin-top: 8px;">Add custom distances (comma-separated km values)</div>
+      <input type="text" class="setting-input" id="customDistancePresets" placeholder="e.g., 25, 35, 80">
     </div>
 
     <div class="setting-row">

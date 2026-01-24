@@ -19,7 +19,21 @@ const DEFAULT_SETTINGS = {
   apiUrl: '',
   apiToken: '',
   syncMode: 'both', // 'bulk_only', 'realtime_only', 'both'
-  customDistancePresets: '', // Comma-separated km values
+  // Distance presets - new toggle-based format
+  distancePresets: {
+    // Which default distances are enabled (true = show, false = hide)
+    defaults: {
+      5: true,   // 5K
+      10: true,  // 10K
+      21: true,  // HM
+      42: true,  // FM
+      50: true,  // 50K
+      100: true, // 100K
+      161: true, // 100M
+    },
+    // Additional custom distances to add (comma-separated in input)
+    custom: [],
+  },
   screenshotUploadTiming: 'immediate', // 'immediate' or 'on_save'
 };
 
@@ -61,6 +75,7 @@ const apiTokenSetting = document.getElementById('apiTokenSetting');
 const toggleTokenVisibility = document.getElementById('toggleTokenVisibility');
 const syncModeSetting = document.getElementById('syncModeSetting');
 const customDistancePresetsSetting = document.getElementById('customDistancePresets');
+const distancePresetToggles = document.getElementById('distancePresetToggles');
 const saveSettingsBtn = document.getElementById('saveSettingsBtn');
 const testConnectionBtn = document.getElementById('testConnectionBtn');
 const connectionStatus = document.getElementById('connectionStatus');
@@ -401,6 +416,14 @@ async function loadFromStorage() {
       const data = result[STORAGE_KEY];
       bundles = data.bundles || [];
       settings = { ...DEFAULT_SETTINGS, ...data.settings };
+
+      // Migrate old customDistancePresets string format to new toggle-based format
+      if (settings.customDistancePresets && typeof settings.customDistancePresets === 'string') {
+        settings.distancePresets = migrateOldDistancePresets(settings.customDistancePresets);
+        delete settings.customDistancePresets;
+        await saveToStorage(); // Persist the migration
+      }
+
       return true;
     }
 
@@ -2001,8 +2024,38 @@ saveSettingsBtn.addEventListener('click', async () => {
   settings.apiUrl = apiUrlSetting.value.trim();
   settings.apiToken = apiTokenSetting.value.trim();
   settings.syncMode = syncModeSetting.value;
-  settings.customDistancePresets = customDistancePresetsSetting.value.trim();
   settings.screenshotUploadTiming = screenshotUploadTimingSetting.value;
+
+  // Collect distance presets from toggle chips
+  const defaults = {};
+  if (distancePresetToggles) {
+    const chips = distancePresetToggles.querySelectorAll('.distance-preset-chip');
+    chips.forEach((chip) => {
+      const value = parseInt(chip.dataset.value, 10);
+      defaults[value] = chip.classList.contains('enabled');
+    });
+  }
+
+  // Parse custom distances from input
+  const customString = customDistancePresetsSetting.value.trim();
+  const customDistances = [];
+  if (customString) {
+    const parts = customString.split(',');
+    for (const part of parts) {
+      const value = parseInt(part.trim(), 10);
+      if (!isNaN(value) && value >= 1 && value <= 1000) {
+        if (!customDistances.includes(value)) {
+          customDistances.push(value);
+        }
+      }
+    }
+  }
+
+  // Update distancePresets in settings
+  settings.distancePresets = {
+    defaults: defaults,
+    custom: customDistances,
+  };
 
   // Save to storage
   await saveToStorage();
@@ -2284,49 +2337,149 @@ async function fetchDistances() {
 }
 
 /**
- * Parse custom distance presets from settings string
- * Returns array of { value: number, label: string, isUserPreset: true }
+ * Migrate old customDistancePresets string format to new toggle-based format
+ * Old format: "25, -21, 35" where negative means remove default
+ * New format: { defaults: { 5: true, ... }, custom: [25, 35] }
  */
-function parseCustomDistancePresets() {
-  const presetsString = settings.customDistancePresets || '';
-  if (!presetsString.trim()) return [];
+function migrateOldDistancePresets(presetsString) {
+  const result = {
+    defaults: {
+      5: true,
+      10: true,
+      21: true,
+      42: true,
+      50: true,
+      100: true,
+      161: true,
+    },
+    custom: [],
+  };
 
-  const presets = [];
+  if (!presetsString || typeof presetsString !== 'string') {
+    return result;
+  }
+
   const parts = presetsString.split(',');
-
   for (const part of parts) {
     const trimmed = part.trim();
     const value = parseInt(trimmed, 10);
 
-    // Validate: must be a positive number between 1 and 1000
+    if (isNaN(value) || value === 0) continue;
+
+    if (value < 0) {
+      // Negative: disable this default distance
+      const removeValue = Math.abs(value);
+      if (result.defaults[removeValue] !== undefined) {
+        result.defaults[removeValue] = false;
+      }
+    } else {
+      // Positive: add as custom distance (if not already a default)
+      const defaultValues = [5, 10, 21, 42, 50, 100, 161];
+      if (!defaultValues.includes(value) && !result.custom.includes(value)) {
+        result.custom.push(value);
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Get distance presets from settings (with backwards compatibility)
+ * Returns the distancePresets object with defaults and custom arrays
+ */
+function getDistancePresets() {
+  // Handle new format
+  if (settings.distancePresets && typeof settings.distancePresets === 'object') {
+    return settings.distancePresets;
+  }
+
+  // Default: all defaults enabled, no custom
+  return {
+    defaults: {
+      5: true,
+      10: true,
+      21: true,
+      42: true,
+      50: true,
+      100: true,
+      161: true,
+    },
+    custom: [],
+  };
+}
+
+/**
+ * Get custom distances from settings (parse from input field value if needed)
+ */
+function getCustomDistances() {
+  const presets = getDistancePresets();
+
+  // If we have the array already, return it
+  if (Array.isArray(presets.custom)) {
+    return presets.custom;
+  }
+
+  // Parse from comma-separated string (legacy or from input)
+  const customString = customDistancePresetsSetting?.value || '';
+  if (!customString.trim()) return [];
+
+  const customDistances = [];
+  const parts = customString.split(',');
+
+  for (const part of parts) {
+    const value = parseInt(part.trim(), 10);
     if (!isNaN(value) && value >= 1 && value <= 1000) {
-      presets.push({
+      customDistances.push(value);
+    }
+  }
+
+  return [...new Set(customDistances)]; // Remove duplicates
+}
+
+/**
+ * Merge global distances with user presets (toggle-based)
+ * - Filters out disabled defaults
+ * - Adds custom distances
+ */
+function mergeDistancesWithPresets(globalDistances) {
+  const presets = getDistancePresets();
+  const defaults = presets.defaults || {};
+  const customDistances = getCustomDistances();
+
+  // Map of default value -> whether it's enabled
+  // If a default isn't in the settings, it's enabled by default
+  const defaultValues = [5, 10, 21, 42, 50, 100, 161];
+
+  // Start with copy of global distances, filtering out disabled defaults
+  let distances = globalDistances.filter(d => {
+    // If it's a default distance, check if it's enabled
+    if (defaultValues.includes(d.value)) {
+      return defaults[d.value] !== false; // true or undefined = enabled
+    }
+    // Non-default distances from API are always included
+    return true;
+  });
+
+  // Get set of existing values to avoid duplicates when adding
+  const existingValues = new Set(distances.map(d => d.value));
+
+  // Add custom distances that don't already exist
+  for (const value of customDistances) {
+    if (!existingValues.has(value)) {
+      distances.push({
         value: value,
         label: `${value}K`,
         isUserPreset: true,
       });
+      existingValues.add(value);
     }
   }
 
-  return presets;
-}
+  // Sort by value
+  distances.sort((a, b) => a.value - b.value);
 
-/**
- * Merge global distances with user custom presets
- * User presets appear AFTER global presets, duplicates are skipped
- */
-function mergeDistancesWithPresets(globalDistances) {
-  const customPresets = parseCustomDistancePresets();
-  if (customPresets.length === 0) return globalDistances;
-
-  // Get set of existing values to avoid duplicates
-  const existingValues = new Set(globalDistances.map(d => d.value));
-
-  // Filter out duplicates from custom presets
-  const uniquePresets = customPresets.filter(p => !existingValues.has(p.value));
-
-  // Merge: global first, then user presets
-  return [...globalDistances, ...uniquePresets];
+  return distances;
 }
 
 /**
@@ -3330,6 +3483,19 @@ customDistanceInput.addEventListener('keydown', (e) => {
   }
 });
 
+// Handle distance preset toggle chips in settings
+if (distancePresetToggles) {
+  distancePresetToggles.addEventListener('click', (e) => {
+    const chip = e.target.closest('.distance-preset-chip');
+    if (!chip) return;
+
+    // Toggle enabled/disabled state
+    const isCurrentlyEnabled = chip.classList.contains('enabled');
+    chip.classList.toggle('enabled', !isCurrentlyEnabled);
+    chip.classList.toggle('disabled', isCurrentlyEnabled);
+  });
+}
+
 // Unsaved Changes Dialog Event Listeners
 unsavedSaveBtn.addEventListener('click', async () => {
   hideUnsavedDialog();
@@ -3392,13 +3558,40 @@ async function init() {
   apiUrlSetting.value = settings.apiUrl || '';
   apiTokenSetting.value = settings.apiToken || '';
   syncModeSetting.value = settings.syncMode || 'both';
-  customDistancePresetsSetting.value = settings.customDistancePresets || '';
   screenshotUploadTimingSetting.value = settings.screenshotUploadTiming || 'immediate';
+
+  // Apply distance presets to UI
+  applyDistancePresetsToUI();
 
   // Update capture button visibility based on setting
   updateCaptureButtonsVisibility();
 
   renderBundlesList();
+}
+
+/**
+ * Apply distance presets from settings to the UI toggle chips
+ */
+function applyDistancePresetsToUI() {
+  const presets = getDistancePresets();
+  const defaults = presets.defaults || {};
+  const custom = presets.custom || [];
+
+  // Update toggle chips based on saved defaults
+  if (distancePresetToggles) {
+    const chips = distancePresetToggles.querySelectorAll('.distance-preset-chip');
+    chips.forEach((chip) => {
+      const value = parseInt(chip.dataset.value, 10);
+      const isEnabled = defaults[value] !== false; // Default to enabled if not set
+      chip.classList.toggle('enabled', isEnabled);
+      chip.classList.toggle('disabled', !isEnabled);
+    });
+  }
+
+  // Update custom distances input
+  if (customDistancePresetsSetting) {
+    customDistancePresetsSetting.value = custom.join(', ');
+  }
 }
 
 init();
