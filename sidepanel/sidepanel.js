@@ -19,6 +19,8 @@ const DEFAULT_SETTINGS = {
   apiUrl: '',
   apiToken: '',
   syncMode: 'both', // 'bulk_only', 'realtime_only', 'both'
+  customDistancePresets: '', // Comma-separated km values
+  screenshotUploadTiming: 'immediate', // 'immediate' or 'on_save'
 };
 
 // App state
@@ -57,6 +59,7 @@ const apiUrlSetting = document.getElementById('apiUrlSetting');
 const apiTokenSetting = document.getElementById('apiTokenSetting');
 const toggleTokenVisibility = document.getElementById('toggleTokenVisibility');
 const syncModeSetting = document.getElementById('syncModeSetting');
+const customDistancePresetsSetting = document.getElementById('customDistancePresets');
 const saveSettingsBtn = document.getElementById('saveSettingsBtn');
 const testConnectionBtn = document.getElementById('testConnectionBtn');
 const connectionStatus = document.getElementById('connectionStatus');
@@ -119,13 +122,25 @@ const toastEl = document.getElementById('toast');
 // DOM Elements - Header
 const headerTitle = document.getElementById('headerTitle');
 
-// DOM Elements - URL Status
+// DOM Elements - URL Status (legacy, kept for compatibility)
 const urlStatusContainer = document.getElementById('urlStatusContainer');
 const urlStatusBadge = document.getElementById('urlStatusBadge');
 const urlStatusDetails = document.getElementById('urlStatusDetails');
 
+// DOM Elements - Combined Page Info
+const pageInfoSection = document.getElementById('pageInfoSection');
+const pageInfoBadge = document.getElementById('pageInfoBadge');
+const pageInfoBadgeIcon = document.getElementById('pageInfoBadgeIcon');
+const pageInfoBadgeText = document.getElementById('pageInfoBadgeText');
+const pageInfoDetails = document.getElementById('pageInfoDetails');
+const pageInfoEventName = document.getElementById('pageInfoEventName');
+const pageInfoAdminLink = document.getElementById('pageInfoAdminLink');
+
 // DOM Elements - Event Editor
 const eventEditor = document.getElementById('eventEditor');
+const eventEditorAccordionHeader = document.getElementById('eventEditorAccordionHeader');
+const eventEditorChevron = document.getElementById('eventEditorChevron');
+const eventEditorContent = document.getElementById('eventEditorContent');
 const editorEventName = document.getElementById('editorEventName');
 const editorLoading = document.getElementById('editorLoading');
 const editorContent = document.getElementById('editorContent');
@@ -147,6 +162,22 @@ let availableEventTypes = [];
 let availableDistances = [];
 let selectedTagIds = new Set();
 let selectedDistanceValues = [];
+let eventEditorExpanded = true; // Default expanded when event is matched
+
+// Pending screenshots state (for on_save mode)
+let pendingScreenshots = []; // Array of { id, data, filename, capturedAt }
+let lastKnownUrl = null; // Track URL changes for unsaved warning
+let pendingUrlChange = null; // Stores the URL we want to navigate to after dialog
+
+// DOM Elements - Screenshot Upload Timing Setting
+const screenshotUploadTimingSetting = document.getElementById('screenshotUploadTiming');
+
+// DOM Elements - Unsaved Changes Dialog
+const unsavedDialog = document.getElementById('unsavedDialog');
+const unsavedDialogText = document.getElementById('unsavedDialogText');
+const unsavedSaveBtn = document.getElementById('unsavedSaveBtn');
+const unsavedDiscardBtn = document.getElementById('unsavedDiscardBtn');
+const unsavedCancelBtn = document.getElementById('unsavedCancelBtn');
 
 /**
  * Format bytes to human-readable string
@@ -299,8 +330,21 @@ async function updateTabInfo() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab) {
+      const newUrl = tab.url || '';
+
+      // Check for unsaved changes when URL changes
+      if (lastKnownUrl && lastKnownUrl !== newUrl && hasUnsavedChanges()) {
+        pendingUrlChange = newUrl;
+        showUnsavedDialog();
+        // Don't update UI yet, wait for user decision
+        return;
+      }
+
+      // Update last known URL
+      lastKnownUrl = newUrl;
+
       pageTitleEl.textContent = tab.title || 'Unknown';
-      pageUrlEl.textContent = tab.url || '';
+      pageUrlEl.textContent = newUrl;
     }
   } catch (err) {
     pageTitleEl.textContent = 'Unable to get tab info';
@@ -546,12 +590,61 @@ function renderUrlStatusDetails(eventName, eventId) {
 }
 
 /**
+ * Update the combined page info badge
+ */
+function updatePageInfoBadge(type, text, icon = null) {
+  pageInfoBadge.style.display = 'inline-flex';
+  pageInfoBadge.className = 'page-info-badge ' + type;
+  pageInfoBadgeText.textContent = text;
+  if (icon) {
+    pageInfoBadgeIcon.textContent = icon;
+  }
+}
+
+/**
+ * Update the page info details section
+ */
+function updatePageInfoDetails(eventName, eventId) {
+  if (eventName || eventId) {
+    pageInfoDetails.style.display = 'block';
+    pageInfoEventName.textContent = eventName || '';
+    pageInfoEventName.title = eventName || '';
+
+    if (eventId) {
+      const adminUrl = buildAdminEditUrl(eventId);
+      if (adminUrl) {
+        pageInfoAdminLink.href = adminUrl;
+        pageInfoAdminLink.style.display = 'inline-flex';
+        pageInfoAdminLink.onclick = (e) => {
+          e.preventDefault();
+          window.open(adminUrl, '_blank');
+        };
+      } else {
+        pageInfoAdminLink.style.display = 'none';
+      }
+    } else {
+      pageInfoAdminLink.style.display = 'none';
+    }
+  } else {
+    pageInfoDetails.style.display = 'none';
+  }
+}
+
+/**
+ * Hide page info badge and details
+ */
+function hidePageInfoStatus() {
+  pageInfoBadge.style.display = 'none';
+  pageInfoDetails.style.display = 'none';
+}
+
+/**
  * Update URL status indicator based on current tab URL
  */
 async function updateUrlStatus() {
   // Skip if no API configured
   if (!settings.apiUrl || !settings.apiToken) {
-    urlStatusContainer.style.display = 'none';
+    hidePageInfoStatus();
     hideEventEditor();
     return;
   }
@@ -559,7 +652,7 @@ async function updateUrlStatus() {
   // Get current tab URL
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
-    urlStatusContainer.style.display = 'none';
+    hidePageInfoStatus();
     hideEventEditor();
     return;
   }
@@ -568,69 +661,59 @@ async function updateUrlStatus() {
   const eventAtlasMatch = checkIfEventAtlasUrl(tab.url);
   if (eventAtlasMatch) {
     // Show loading state
-    urlStatusContainer.style.display = 'block';
-    urlStatusBadge.className = 'url-status-badge loading';
-    urlStatusBadge.textContent = '\u22EF Checking...';
-    urlStatusDetails.textContent = '';
+    updatePageInfoBadge('loading', 'Checking...', '\u22EF');
+    updatePageInfoDetails(null, null);
 
     // For EventAtlas URLs, we can fetch event details directly
     // Still use lookup API which will match, but we know it's our own page
     try {
       const result = await lookupUrl(tab.url);
       if (result && result.match_type === 'event' && result.event) {
-        urlStatusBadge.className = 'url-status-badge event';
-        urlStatusBadge.textContent = '\u2713 EventAtlas Event';
-        renderUrlStatusDetails(result.event.title, result.event.id);
+        updatePageInfoBadge('event', 'EventAtlas Event', '\u2713');
+        updatePageInfoDetails(result.event.title, result.event.id);
         showEventEditor(result.event);
       } else {
         // EventAtlas URL but no match found (maybe event deleted)
-        urlStatusBadge.className = 'url-status-badge no-match';
-        urlStatusBadge.textContent = '\u25CB EventAtlas Page';
-        urlStatusDetails.textContent = eventAtlasMatch.type === 'admin' ? 'Admin page' : 'Event page';
+        updatePageInfoBadge('no-match', 'EventAtlas Page', '\u25CB');
+        updatePageInfoDetails(eventAtlasMatch.type === 'admin' ? 'Admin page' : 'Event page', null);
         hideEventEditor();
       }
     } catch (error) {
       console.error('[EventAtlas] Status update error:', error);
-      urlStatusContainer.style.display = 'none';
+      hidePageInfoStatus();
       hideEventEditor();
     }
     return;
   }
 
   // Show loading state for external URLs
-  urlStatusContainer.style.display = 'block';
-  urlStatusBadge.className = 'url-status-badge loading';
-  urlStatusBadge.textContent = '\u22EF Checking...';
-  urlStatusDetails.textContent = '';
+  updatePageInfoBadge('loading', 'Checking...', '\u22EF');
+  updatePageInfoDetails(null, null);
 
   try {
     const result = await lookupUrl(tab.url);
 
     if (!result || result.match_type === 'no_match') {
-      urlStatusBadge.className = 'url-status-badge no-match';
-      urlStatusBadge.textContent = '\u25CB Not in EventAtlas';
-      urlStatusDetails.textContent = 'Capture this page to add it';
+      updatePageInfoBadge('no-match', 'New Page', '\u25CB');
+      updatePageInfoDetails(null, null);
       hideEventEditor();
     } else if (result.match_type === 'event') {
-      urlStatusBadge.className = 'url-status-badge event';
-      urlStatusBadge.textContent = '\u2713 Known Event';
-      renderUrlStatusDetails(result.event?.title, result.event?.id);
+      updatePageInfoBadge('event', 'Known Event', '\u2713');
+      updatePageInfoDetails(result.event?.title, result.event?.id);
       // Show event editor
       showEventEditor(result.event);
     } else if (result.match_type === 'link_discovery') {
-      urlStatusBadge.className = 'url-status-badge link-discovery';
-      urlStatusBadge.textContent = '\u2295 Discovery Page';
-      urlStatusDetails.textContent = result.organizer_link?.organizer_name || '';
+      updatePageInfoBadge('link-discovery', 'Discovery', '\u2295');
+      updatePageInfoDetails(result.organizer_link?.organizer_name || '', null);
       hideEventEditor();
     } else if (result.match_type === 'content_item') {
-      urlStatusBadge.className = 'url-status-badge content-item';
-      urlStatusBadge.textContent = '\u25D0 Scraped';
-      urlStatusDetails.textContent = 'Scraped but not yet processed';
+      updatePageInfoBadge('content-item', 'Scraped', '\u25D0');
+      updatePageInfoDetails('Scraped but not yet processed', null);
       hideEventEditor();
     }
   } catch (error) {
     console.error('[EventAtlas] Status update error:', error);
-    urlStatusContainer.style.display = 'none';
+    hidePageInfoStatus();
     hideEventEditor();
   }
 }
@@ -1817,9 +1900,17 @@ saveSettingsBtn.addEventListener('click', async () => {
   settings.apiUrl = apiUrlSetting.value.trim();
   settings.apiToken = apiTokenSetting.value.trim();
   settings.syncMode = syncModeSetting.value;
+  settings.customDistancePresets = customDistancePresetsSetting.value.trim();
+  settings.screenshotUploadTiming = screenshotUploadTimingSetting.value;
 
   // Save to storage
   await saveToStorage();
+
+  // Reload editor options if API is configured (to apply new distance presets)
+  if (settings.apiUrl && settings.apiToken) {
+    // Reset available distances to trigger reload
+    availableDistances = [];
+  }
 
   // Show saved feedback
   saveSettingsBtn.textContent = 'Saved!';
@@ -2092,6 +2183,52 @@ async function fetchDistances() {
 }
 
 /**
+ * Parse custom distance presets from settings string
+ * Returns array of { value: number, label: string, isUserPreset: true }
+ */
+function parseCustomDistancePresets() {
+  const presetsString = settings.customDistancePresets || '';
+  if (!presetsString.trim()) return [];
+
+  const presets = [];
+  const parts = presetsString.split(',');
+
+  for (const part of parts) {
+    const trimmed = part.trim();
+    const value = parseInt(trimmed, 10);
+
+    // Validate: must be a positive number between 1 and 1000
+    if (!isNaN(value) && value >= 1 && value <= 1000) {
+      presets.push({
+        value: value,
+        label: `${value}K`,
+        isUserPreset: true,
+      });
+    }
+  }
+
+  return presets;
+}
+
+/**
+ * Merge global distances with user custom presets
+ * User presets appear AFTER global presets, duplicates are skipped
+ */
+function mergeDistancesWithPresets(globalDistances) {
+  const customPresets = parseCustomDistancePresets();
+  if (customPresets.length === 0) return globalDistances;
+
+  // Get set of existing values to avoid duplicates
+  const existingValues = new Set(globalDistances.map(d => d.value));
+
+  // Filter out duplicates from custom presets
+  const uniquePresets = customPresets.filter(p => !existingValues.has(p.value));
+
+  // Merge: global first, then user presets
+  return [...globalDistances, ...uniquePresets];
+}
+
+/**
  * Load editor options (tags, event types, distances)
  */
 async function loadEditorOptions() {
@@ -2104,7 +2241,9 @@ async function loadEditorOptions() {
 
   availableTags = tags;
   availableEventTypes = eventTypes;
-  availableDistances = distances;
+
+  // Merge global distances with user custom presets
+  availableDistances = mergeDistancesWithPresets(distances);
 
   // Populate event types dropdown
   editorEventType.innerHTML = '<option value="">-- Select type --</option>';
@@ -2115,16 +2254,71 @@ async function loadEditorOptions() {
     editorEventType.appendChild(option);
   });
 
-  // Populate distances buttons
+  // Populate distances buttons (including user presets)
+  renderDistanceButtonsFromOptions();
+}
+
+/**
+ * Render distance buttons from availableDistances
+ */
+function renderDistanceButtonsFromOptions() {
   editorDistances.innerHTML = '';
-  distances.forEach((dist) => {
+  availableDistances.forEach((dist) => {
     const btn = document.createElement('button');
-    btn.className = 'distance-btn';
+    btn.className = 'distance-btn' + (dist.isUserPreset ? ' user-preset' : '');
     btn.dataset.value = dist.value;
     btn.textContent = dist.label;
+    btn.title = dist.isUserPreset ? 'Custom preset' : '';
     btn.addEventListener('click', () => toggleDistance(dist.value));
     editorDistances.appendChild(btn);
   });
+}
+
+/**
+ * Toggle event editor accordion
+ */
+function toggleEventEditorAccordion() {
+  eventEditorExpanded = !eventEditorExpanded;
+  updateEventEditorAccordionState();
+  saveEventEditorAccordionState();
+}
+
+/**
+ * Update the visual state of the event editor accordion
+ */
+function updateEventEditorAccordionState() {
+  if (eventEditorExpanded) {
+    eventEditorChevron.classList.remove('collapsed');
+    eventEditorContent.classList.remove('collapsed');
+  } else {
+    eventEditorChevron.classList.add('collapsed');
+    eventEditorContent.classList.add('collapsed');
+  }
+}
+
+/**
+ * Save event editor accordion state to storage
+ */
+async function saveEventEditorAccordionState() {
+  try {
+    await chrome.storage.local.set({ eventEditorAccordionExpanded: eventEditorExpanded });
+  } catch (err) {
+    console.error('Error saving accordion state:', err);
+  }
+}
+
+/**
+ * Load event editor accordion state from storage
+ */
+async function loadEventEditorAccordionState() {
+  try {
+    const result = await chrome.storage.local.get(['eventEditorAccordionExpanded']);
+    // If not set, default to expanded (true)
+    eventEditorExpanded = result.eventEditorAccordionExpanded !== false;
+  } catch (err) {
+    console.error('Error loading accordion state:', err);
+    eventEditorExpanded = true;
+  }
 }
 
 /**
@@ -2133,6 +2327,9 @@ async function loadEditorOptions() {
 async function showEventEditor(event) {
   currentMatchedEvent = event;
 
+  // Load accordion state from storage
+  await loadEventEditorAccordionState();
+
   // Show editor and loading state
   eventEditor.classList.add('visible');
   editorLoading.style.display = 'flex';
@@ -2140,6 +2337,10 @@ async function showEventEditor(event) {
 
   // Set event name
   editorEventName.textContent = event.title || event.name || 'Untitled Event';
+
+  // Always expand when showing for a new event match
+  eventEditorExpanded = true;
+  updateEventEditorAccordionState();
 
   // Load options if not already loaded
   if (availableEventTypes.length === 0 || availableTags.length === 0) {
@@ -2195,11 +2396,152 @@ function renderTagsChips() {
     checkmark.textContent = selectedTagIds.has(tag.id) ? '\u2713' : '';
 
     chip.appendChild(checkmark);
-    chip.appendChild(document.createTextNode(tag.name));
+
+    // Tag name
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = tag.name;
+    chip.appendChild(nameSpan);
+
+    // Usage count (if available)
+    if (typeof tag.events_count === 'number') {
+      const countSpan = document.createElement('span');
+      countSpan.className = 'tag-chip-count';
+      countSpan.textContent = ` (${tag.events_count})`;
+      chip.appendChild(countSpan);
+    }
 
     chip.addEventListener('click', () => toggleTag(tag.id));
     editorTags.appendChild(chip);
   });
+
+  // Render the create new tag input
+  renderCreateTagInput();
+}
+
+/**
+ * Render create new tag input
+ */
+function renderCreateTagInput() {
+  // Check if input container already exists
+  let inputContainer = document.getElementById('createTagContainer');
+  if (!inputContainer) {
+    inputContainer = document.createElement('div');
+    inputContainer.id = 'createTagContainer';
+    inputContainer.className = 'create-tag-container';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = 'createTagInput';
+    input.className = 'create-tag-input';
+    input.placeholder = 'Create new tag...';
+
+    const errorEl = document.createElement('div');
+    errorEl.id = 'createTagError';
+    errorEl.className = 'create-tag-error';
+    errorEl.style.display = 'none';
+
+    inputContainer.appendChild(input);
+    inputContainer.appendChild(errorEl);
+
+    // Insert after the tags container
+    editorTags.parentElement.appendChild(inputContainer);
+
+    // Event listeners
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        createNewTag(input.value.trim());
+      }
+    });
+
+    input.addEventListener('blur', () => {
+      const value = input.value.trim();
+      if (value) {
+        createNewTag(value);
+      }
+    });
+
+    // Clear error on input
+    input.addEventListener('input', () => {
+      const errorEl = document.getElementById('createTagError');
+      if (errorEl) {
+        errorEl.style.display = 'none';
+      }
+    });
+  }
+}
+
+/**
+ * Create a new tag via API
+ */
+async function createNewTag(name) {
+  if (!name) return;
+
+  if (!settings.apiUrl || !settings.apiToken) {
+    showToast('API not configured', 'error');
+    return;
+  }
+
+  const input = document.getElementById('createTagInput');
+  const errorEl = document.getElementById('createTagError');
+
+  // Disable input while creating
+  if (input) {
+    input.disabled = true;
+  }
+
+  try {
+    const response = await fetch(`${settings.apiUrl}/api/extension/tags`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${settings.apiToken}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const message = errorData.message || errorData.errors?.name?.[0] || `Failed: ${response.status}`;
+      throw new Error(message);
+    }
+
+    const data = await response.json();
+
+    if (data.tag) {
+      // Add the new tag to available tags
+      availableTags.push(data.tag);
+
+      // Auto-select the new tag
+      selectedTagIds.add(data.tag.id);
+
+      // Clear input
+      if (input) {
+        input.value = '';
+      }
+
+      // Re-render tags
+      renderTagsChips();
+
+      showToast(`Tag "${data.tag.name}" created`, 'success');
+    }
+  } catch (error) {
+    console.error('[EventAtlas] Error creating tag:', error);
+
+    // Show error message below input
+    if (errorEl) {
+      errorEl.textContent = error.message;
+      errorEl.style.display = 'block';
+    }
+
+    showToast(error.message || 'Failed to create tag', 'error');
+  } finally {
+    if (input) {
+      input.disabled = false;
+      input.focus();
+    }
+  }
 }
 
 /**
@@ -2216,15 +2558,23 @@ function toggleTag(tagId) {
 
 /**
  * Render distance buttons (update selected state)
+ * Preserves user-preset class while toggling selected state
  */
 function renderDistanceButtons() {
   const buttons = editorDistances.querySelectorAll('.distance-btn');
   buttons.forEach((btn) => {
     const value = parseInt(btn.dataset.value, 10);
+    const isUserPreset = btn.classList.contains('user-preset');
+
     if (selectedDistanceValues.includes(value)) {
       btn.classList.add('selected');
     } else {
       btn.classList.remove('selected');
+    }
+
+    // Ensure user-preset class is preserved
+    if (isUserPreset && !btn.classList.contains('user-preset')) {
+      btn.classList.add('user-preset');
     }
   });
 }
@@ -2314,7 +2664,7 @@ function renderSelectedDistances() {
 }
 
 /**
- * Render saved screenshots
+ * Render saved screenshots with delete buttons
  */
 function renderSavedScreenshots(media) {
   savedScreenshotsEl.innerHTML = '';
@@ -2322,7 +2672,8 @@ function renderSavedScreenshots(media) {
   // Filter for screenshots
   const screenshots = media.filter(m => m.type === 'screenshot' || m.type === 'Screenshot');
 
-  if (screenshots.length === 0) {
+  // Render saved screenshots
+  if (screenshots.length === 0 && pendingScreenshots.length === 0) {
     savedScreenshotsEl.innerHTML = '<div class="no-screenshots">No screenshots yet</div>';
     return;
   }
@@ -2340,6 +2691,17 @@ function renderSavedScreenshots(media) {
 
     div.appendChild(img);
 
+    // Delete button
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'screenshot-delete-btn';
+    deleteBtn.innerHTML = '&times;';
+    deleteBtn.title = 'Delete screenshot';
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteScreenshot(item.id);
+    });
+    div.appendChild(deleteBtn);
+
     // Click to open in modal or new tab
     div.addEventListener('click', () => {
       window.open(item.file_url, '_blank');
@@ -2347,6 +2709,231 @@ function renderSavedScreenshots(media) {
 
     savedScreenshotsEl.appendChild(div);
   });
+
+  // Render pending screenshots section if any
+  if (pendingScreenshots.length > 0) {
+    renderPendingScreenshots();
+  }
+}
+
+/**
+ * Render pending screenshots (for on_save mode)
+ */
+function renderPendingScreenshots() {
+  // Create pending section if needed
+  let pendingSection = savedScreenshotsEl.querySelector('.pending-screenshots-section');
+  if (!pendingSection) {
+    pendingSection = document.createElement('div');
+    pendingSection.className = 'pending-screenshots-section';
+    savedScreenshotsEl.appendChild(pendingSection);
+  }
+
+  pendingSection.innerHTML = '';
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'pending-screenshots-header';
+  header.innerHTML = `
+    <span class="pending-screenshots-title">Pending Upload</span>
+    <span class="pending-screenshots-count">${pendingScreenshots.length}</span>
+  `;
+  pendingSection.appendChild(header);
+
+  // Grid
+  const grid = document.createElement('div');
+  grid.className = 'pending-screenshots-grid';
+
+  pendingScreenshots.forEach((item) => {
+    const div = document.createElement('div');
+    div.className = 'pending-screenshot-item';
+
+    const img = document.createElement('img');
+    img.src = item.data;
+    img.alt = 'Pending screenshot';
+
+    div.appendChild(img);
+
+    // Pending badge
+    const badge = document.createElement('span');
+    badge.className = 'pending-badge';
+    badge.textContent = 'Pending';
+    div.appendChild(badge);
+
+    // Remove button
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'pending-screenshot-remove';
+    removeBtn.innerHTML = '&times;';
+    removeBtn.title = 'Remove pending screenshot';
+    removeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removePendingScreenshot(item.id);
+    });
+    div.appendChild(removeBtn);
+
+    grid.appendChild(div);
+  });
+
+  pendingSection.appendChild(grid);
+}
+
+/**
+ * Remove a pending screenshot
+ */
+function removePendingScreenshot(id) {
+  pendingScreenshots = pendingScreenshots.filter(s => s.id !== id);
+  // Re-render screenshots
+  if (currentMatchedEvent) {
+    renderSavedScreenshots(currentMatchedEvent.media || []);
+  }
+}
+
+/**
+ * Delete a saved screenshot via API
+ */
+async function deleteScreenshot(mediaId) {
+  if (!currentMatchedEvent || !settings.apiUrl || !settings.apiToken) {
+    showToast('Cannot delete - no event selected or API not configured', 'error');
+    return;
+  }
+
+  // Confirm deletion
+  if (!confirm('Are you sure you want to delete this screenshot?')) {
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `${settings.apiUrl}/api/extension/events/${currentMatchedEvent.id}/screenshot/${mediaId}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${settings.apiToken}`,
+          'Accept': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Delete failed: ${response.status}`);
+    }
+
+    // Remove from local state
+    if (currentMatchedEvent.media) {
+      currentMatchedEvent.media = currentMatchedEvent.media.filter(m => m.id !== mediaId);
+    }
+
+    // Re-render
+    renderSavedScreenshots(currentMatchedEvent.media || []);
+    showToast('Screenshot deleted', 'success');
+
+  } catch (error) {
+    console.error('[EventAtlas] Error deleting screenshot:', error);
+    showToast(error.message || 'Failed to delete screenshot', 'error');
+  }
+}
+
+/**
+ * Check if there are unsaved changes (pending screenshots)
+ */
+function hasUnsavedChanges() {
+  return pendingScreenshots.length > 0;
+}
+
+/**
+ * Show unsaved changes dialog
+ */
+function showUnsavedDialog(message) {
+  if (message) {
+    unsavedDialogText.textContent = message;
+  } else {
+    unsavedDialogText.textContent = 'You have pending screenshots that haven\'t been uploaded. What would you like to do?';
+  }
+  unsavedDialog.classList.add('visible');
+}
+
+/**
+ * Hide unsaved changes dialog
+ */
+function hideUnsavedDialog() {
+  unsavedDialog.classList.remove('visible');
+  pendingUrlChange = null;
+}
+
+/**
+ * Upload all pending screenshots
+ */
+async function uploadPendingScreenshots() {
+  if (!currentMatchedEvent || pendingScreenshots.length === 0) {
+    return true;
+  }
+
+  editorSaveBtn.disabled = true;
+  editorSaveBtn.textContent = 'Uploading screenshots...';
+
+  try {
+    for (const pending of pendingScreenshots) {
+      const response = await fetch(
+        `${settings.apiUrl}/api/extension/events/${currentMatchedEvent.id}/screenshot`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${settings.apiToken}`,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            image: pending.data,
+            filename: pending.filename,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Upload failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // Add to current event's media
+      if (data.media_asset) {
+        if (!currentMatchedEvent.media) {
+          currentMatchedEvent.media = [];
+        }
+        currentMatchedEvent.media.push(data.media_asset);
+      }
+    }
+
+    // Clear pending screenshots
+    pendingScreenshots = [];
+
+    // Re-render
+    renderSavedScreenshots(currentMatchedEvent.media || []);
+
+    editorSaveBtn.textContent = 'Save Changes';
+    editorSaveBtn.disabled = false;
+
+    return true;
+  } catch (error) {
+    console.error('[EventAtlas] Error uploading pending screenshots:', error);
+    showToast(error.message || 'Failed to upload screenshots', 'error');
+
+    editorSaveBtn.textContent = 'Save Changes';
+    editorSaveBtn.disabled = false;
+
+    return false;
+  }
+}
+
+/**
+ * Discard all pending screenshots
+ */
+function discardPendingScreenshots() {
+  pendingScreenshots = [];
+  if (currentMatchedEvent) {
+    renderSavedScreenshots(currentMatchedEvent.media || []);
+  }
 }
 
 /**
@@ -2391,6 +2978,19 @@ async function saveEventChanges() {
   editorSaveBtn.classList.add('saving');
 
   try {
+    // Upload pending screenshots first (if any)
+    if (pendingScreenshots.length > 0) {
+      editorSaveBtn.textContent = 'Uploading screenshots...';
+      const uploadSuccess = await uploadPendingScreenshots();
+      if (!uploadSuccess) {
+        editorSaveBtn.textContent = 'Save Changes';
+        editorSaveBtn.classList.remove('saving');
+        editorSaveBtn.disabled = false;
+        return;
+      }
+      editorSaveBtn.textContent = 'Saving...';
+    }
+
     const payload = {
       event_type_id: editorEventType.value ? parseInt(editorEventType.value, 10) : null,
       tag_ids: Array.from(selectedTagIds),
@@ -2448,6 +3048,7 @@ async function saveEventChanges() {
 
 /**
  * Capture and upload screenshot for event
+ * Respects the screenshotUploadTiming setting
  */
 async function captureAndUploadEventScreenshot() {
   if (!currentMatchedEvent || !settings.apiUrl || !settings.apiToken) {
@@ -2473,7 +3074,35 @@ async function captureAndUploadEventScreenshot() {
       throw new Error('Failed to capture screenshot');
     }
 
-    // Upload to API
+    const filename = `screenshot_${Date.now()}.png`;
+
+    // Check upload timing setting
+    if (settings.screenshotUploadTiming === 'on_save') {
+      // Store locally as pending
+      pendingScreenshots.push({
+        id: generateId(),
+        data: screenshot,
+        filename: filename,
+        capturedAt: new Date().toISOString(),
+      });
+
+      // Re-render to show pending screenshot
+      renderSavedScreenshots(currentMatchedEvent.media || []);
+
+      captureEventScreenshotBtn.innerHTML = '<span>&#10003;</span> Captured!';
+      captureEventScreenshotBtn.classList.add('success');
+      showToast('Screenshot captured (will upload on Save)', 'success');
+
+      setTimeout(() => {
+        captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Capture';
+        captureEventScreenshotBtn.classList.remove('success');
+        captureEventScreenshotBtn.disabled = false;
+      }, 1500);
+
+      return;
+    }
+
+    // Immediate upload mode
     captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Uploading...';
 
     const response = await fetch(`${settings.apiUrl}/api/extension/events/${currentMatchedEvent.id}/screenshot`, {
@@ -2485,7 +3114,7 @@ async function captureAndUploadEventScreenshot() {
       },
       body: JSON.stringify({
         image: screenshot,
-        filename: `screenshot_${Date.now()}.png`,
+        filename: filename,
       }),
     });
 
@@ -2524,6 +3153,7 @@ async function captureAndUploadEventScreenshot() {
 }
 
 // Event Editor Event Listeners
+eventEditorAccordionHeader.addEventListener('click', toggleEventEditorAccordion);
 editorSaveBtn.addEventListener('click', saveEventChanges);
 addCustomDistanceBtn.addEventListener('click', addCustomDistance);
 captureEventScreenshotBtn.addEventListener('click', captureAndUploadEventScreenshot);
@@ -2540,6 +3170,28 @@ customDistanceInput.addEventListener('keydown', (e) => {
     e.preventDefault();
     addCustomDistance();
   }
+});
+
+// Unsaved Changes Dialog Event Listeners
+unsavedSaveBtn.addEventListener('click', async () => {
+  hideUnsavedDialog();
+  await saveEventChanges();
+  // After save, proceed with the URL change
+  lastKnownUrl = null; // Reset so next updateTabInfo works
+  pendingScreenshots = []; // Clear any remaining pending (should be uploaded)
+  await updateTabInfo();
+});
+
+unsavedDiscardBtn.addEventListener('click', async () => {
+  hideUnsavedDialog();
+  discardPendingScreenshots();
+  lastKnownUrl = null; // Reset so next updateTabInfo works
+  await updateTabInfo();
+});
+
+unsavedCancelBtn.addEventListener('click', () => {
+  hideUnsavedDialog();
+  // Keep the lastKnownUrl as is - user chose to stay
 });
 
 /**
@@ -2582,6 +3234,8 @@ async function init() {
   apiUrlSetting.value = settings.apiUrl || '';
   apiTokenSetting.value = settings.apiToken || '';
   syncModeSetting.value = settings.syncMode || 'both';
+  customDistancePresetsSetting.value = settings.customDistancePresets || '';
+  screenshotUploadTimingSetting.value = settings.screenshotUploadTiming || 'immediate';
 
   // Update capture button visibility based on setting
   updateCaptureButtonsVisibility();
