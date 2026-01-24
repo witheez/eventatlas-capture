@@ -121,6 +121,30 @@ const urlStatusContainer = document.getElementById('urlStatusContainer');
 const urlStatusBadge = document.getElementById('urlStatusBadge');
 const urlStatusDetails = document.getElementById('urlStatusDetails');
 
+// DOM Elements - Event Editor
+const eventEditor = document.getElementById('eventEditor');
+const editorEventName = document.getElementById('editorEventName');
+const editorLoading = document.getElementById('editorLoading');
+const editorContent = document.getElementById('editorContent');
+const editorEventType = document.getElementById('editorEventType');
+const editorTags = document.getElementById('editorTags');
+const editorDistances = document.getElementById('editorDistances');
+const customDistanceInput = document.getElementById('customDistanceInput');
+const addCustomDistanceBtn = document.getElementById('addCustomDistanceBtn');
+const selectedDistancesEl = document.getElementById('selectedDistances');
+const editorNotes = document.getElementById('editorNotes');
+const editorSaveBtn = document.getElementById('editorSaveBtn');
+const captureEventScreenshotBtn = document.getElementById('captureEventScreenshotBtn');
+const savedScreenshotsEl = document.getElementById('savedScreenshots');
+
+// Event Editor State
+let currentMatchedEvent = null;
+let availableTags = [];
+let availableEventTypes = [];
+let availableDistances = [];
+let selectedTagIds = new Set();
+let selectedDistanceValues = [];
+
 /**
  * Format bytes to human-readable string
  */
@@ -418,6 +442,7 @@ async function updateUrlStatus() {
   // Skip if no API configured
   if (!settings.apiUrl || !settings.apiToken) {
     urlStatusContainer.style.display = 'none';
+    hideEventEditor();
     return;
   }
 
@@ -425,6 +450,7 @@ async function updateUrlStatus() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
     urlStatusContainer.style.display = 'none';
+    hideEventEditor();
     return;
   }
 
@@ -441,22 +467,28 @@ async function updateUrlStatus() {
       urlStatusBadge.className = 'url-status-badge no-match';
       urlStatusBadge.textContent = '\u25CB Not in EventAtlas';
       urlStatusDetails.textContent = 'Capture this page to add it';
+      hideEventEditor();
     } else if (result.match_type === 'event') {
       urlStatusBadge.className = 'url-status-badge event';
       urlStatusBadge.textContent = '\u2713 Known Event';
       urlStatusDetails.textContent = result.event?.title || '';
+      // Show event editor
+      showEventEditor(result.event);
     } else if (result.match_type === 'link_discovery') {
       urlStatusBadge.className = 'url-status-badge link-discovery';
       urlStatusBadge.textContent = '\u2295 Discovery Page';
       urlStatusDetails.textContent = result.organizer_link?.organizer_name || '';
+      hideEventEditor();
     } else if (result.match_type === 'content_item') {
       urlStatusBadge.className = 'url-status-badge content-item';
       urlStatusBadge.textContent = '\u25D0 Scraped';
       urlStatusDetails.textContent = 'Scraped but not yet processed';
+      hideEventEditor();
     }
   } catch (error) {
     console.error('[EventAtlas] Status update error:', error);
     urlStatusContainer.style.display = 'none';
+    hideEventEditor();
   }
 }
 
@@ -1840,6 +1872,496 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, _tab) => {
       hideErrorMessage();
       hideDuplicateDialog();
     }
+  }
+});
+
+// ========================================
+// Event Editor Functions
+// ========================================
+
+/**
+ * Fetch available tags from API
+ */
+async function fetchTags() {
+  if (!settings.apiUrl || !settings.apiToken) return [];
+
+  try {
+    const response = await fetch(`${settings.apiUrl}/api/extension/tags`, {
+      headers: {
+        'Authorization': `Bearer ${settings.apiToken}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) throw new Error(`Failed to fetch tags: ${response.status}`);
+    const data = await response.json();
+    return data.tags || [];
+  } catch (error) {
+    console.error('[EventAtlas] Error fetching tags:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch available event types from API
+ */
+async function fetchEventTypes() {
+  if (!settings.apiUrl || !settings.apiToken) return [];
+
+  try {
+    const response = await fetch(`${settings.apiUrl}/api/extension/event-types`, {
+      headers: {
+        'Authorization': `Bearer ${settings.apiToken}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) throw new Error(`Failed to fetch event types: ${response.status}`);
+    const data = await response.json();
+    return data.event_types || [];
+  } catch (error) {
+    console.error('[EventAtlas] Error fetching event types:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch available distances from API
+ */
+async function fetchDistances() {
+  if (!settings.apiUrl || !settings.apiToken) return [];
+
+  try {
+    const response = await fetch(`${settings.apiUrl}/api/extension/distances`, {
+      headers: {
+        'Authorization': `Bearer ${settings.apiToken}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) throw new Error(`Failed to fetch distances: ${response.status}`);
+    const data = await response.json();
+    return data.distances || [];
+  } catch (error) {
+    console.error('[EventAtlas] Error fetching distances:', error);
+    return [];
+  }
+}
+
+/**
+ * Load editor options (tags, event types, distances)
+ */
+async function loadEditorOptions() {
+  // Fetch all in parallel
+  const [tags, eventTypes, distances] = await Promise.all([
+    fetchTags(),
+    fetchEventTypes(),
+    fetchDistances(),
+  ]);
+
+  availableTags = tags;
+  availableEventTypes = eventTypes;
+  availableDistances = distances;
+
+  // Populate event types dropdown
+  editorEventType.innerHTML = '<option value="">-- Select type --</option>';
+  eventTypes.forEach((type) => {
+    const option = document.createElement('option');
+    option.value = type.id;
+    option.textContent = type.name;
+    editorEventType.appendChild(option);
+  });
+
+  // Populate distances buttons
+  editorDistances.innerHTML = '';
+  distances.forEach((dist) => {
+    const btn = document.createElement('button');
+    btn.className = 'distance-btn';
+    btn.dataset.value = dist.value;
+    btn.textContent = dist.label;
+    btn.addEventListener('click', () => toggleDistance(dist.value));
+    editorDistances.appendChild(btn);
+  });
+}
+
+/**
+ * Show event editor with matched event data
+ */
+async function showEventEditor(event) {
+  currentMatchedEvent = event;
+
+  // Show editor and loading state
+  eventEditor.classList.add('visible');
+  editorLoading.style.display = 'flex';
+  editorContent.style.display = 'none';
+
+  // Set event name
+  editorEventName.textContent = event.title || event.name || 'Untitled Event';
+
+  // Load options if not already loaded
+  if (availableEventTypes.length === 0 || availableTags.length === 0) {
+    await loadEditorOptions();
+  }
+
+  // Set current values from event
+  editorEventType.value = event.event_type_id || '';
+
+  // Set selected tags
+  selectedTagIds = new Set((event.tags || []).map(t => t.id));
+  renderTagsChips();
+
+  // Set selected distances
+  selectedDistanceValues = Array.isArray(event.distances_km) ? [...event.distances_km] : [];
+  renderDistanceButtons();
+  renderSelectedDistances();
+
+  // Set notes
+  editorNotes.value = event.notes || '';
+
+  // Render saved screenshots
+  renderSavedScreenshots(event.media || []);
+
+  // Hide loading, show content
+  editorLoading.style.display = 'none';
+  editorContent.style.display = 'block';
+}
+
+/**
+ * Hide event editor
+ */
+function hideEventEditor() {
+  eventEditor.classList.remove('visible');
+  currentMatchedEvent = null;
+  selectedTagIds = new Set();
+  selectedDistanceValues = [];
+}
+
+/**
+ * Render tag chips
+ */
+function renderTagsChips() {
+  editorTags.innerHTML = '';
+
+  availableTags.forEach((tag) => {
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip' + (selectedTagIds.has(tag.id) ? ' selected' : '');
+    chip.dataset.tagId = tag.id;
+
+    const checkmark = document.createElement('span');
+    checkmark.className = 'tag-chip-check';
+    checkmark.textContent = selectedTagIds.has(tag.id) ? '\u2713' : '';
+
+    chip.appendChild(checkmark);
+    chip.appendChild(document.createTextNode(tag.name));
+
+    chip.addEventListener('click', () => toggleTag(tag.id));
+    editorTags.appendChild(chip);
+  });
+}
+
+/**
+ * Toggle tag selection
+ */
+function toggleTag(tagId) {
+  if (selectedTagIds.has(tagId)) {
+    selectedTagIds.delete(tagId);
+  } else {
+    selectedTagIds.add(tagId);
+  }
+  renderTagsChips();
+}
+
+/**
+ * Render distance buttons (update selected state)
+ */
+function renderDistanceButtons() {
+  const buttons = editorDistances.querySelectorAll('.distance-btn');
+  buttons.forEach((btn) => {
+    const value = parseInt(btn.dataset.value, 10);
+    if (selectedDistanceValues.includes(value)) {
+      btn.classList.add('selected');
+    } else {
+      btn.classList.remove('selected');
+    }
+  });
+}
+
+/**
+ * Toggle distance selection
+ */
+function toggleDistance(value) {
+  const numValue = parseInt(value, 10);
+  const index = selectedDistanceValues.indexOf(numValue);
+
+  if (index >= 0) {
+    selectedDistanceValues.splice(index, 1);
+  } else {
+    selectedDistanceValues.push(numValue);
+  }
+
+  // Sort distances
+  selectedDistanceValues.sort((a, b) => a - b);
+
+  renderDistanceButtons();
+  renderSelectedDistances();
+}
+
+/**
+ * Add custom distance
+ */
+function addCustomDistance() {
+  const value = parseInt(customDistanceInput.value, 10);
+
+  if (isNaN(value) || value < 1 || value > 1000) {
+    showToast('Enter a valid distance (1-1000 km)', 'error');
+    return;
+  }
+
+  if (!selectedDistanceValues.includes(value)) {
+    selectedDistanceValues.push(value);
+    selectedDistanceValues.sort((a, b) => a - b);
+    renderDistanceButtons();
+    renderSelectedDistances();
+  }
+
+  customDistanceInput.value = '';
+}
+
+/**
+ * Remove a selected distance
+ */
+function removeDistance(value) {
+  const numValue = parseInt(value, 10);
+  const index = selectedDistanceValues.indexOf(numValue);
+
+  if (index >= 0) {
+    selectedDistanceValues.splice(index, 1);
+    renderDistanceButtons();
+    renderSelectedDistances();
+  }
+}
+
+/**
+ * Render selected distances chips
+ */
+function renderSelectedDistances() {
+  selectedDistancesEl.innerHTML = '';
+
+  if (selectedDistanceValues.length === 0) {
+    return;
+  }
+
+  selectedDistanceValues.forEach((value) => {
+    const chip = document.createElement('span');
+    chip.className = 'selected-distance-chip';
+
+    // Find label from available distances or use value + K
+    const distObj = availableDistances.find(d => d.value === value);
+    const label = distObj ? distObj.label : `${value}K`;
+
+    chip.innerHTML = `${label} <span class="selected-distance-remove" data-value="${value}">&times;</span>`;
+
+    chip.querySelector('.selected-distance-remove').addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeDistance(value);
+    });
+
+    selectedDistancesEl.appendChild(chip);
+  });
+}
+
+/**
+ * Render saved screenshots
+ */
+function renderSavedScreenshots(media) {
+  savedScreenshotsEl.innerHTML = '';
+
+  // Filter for screenshots
+  const screenshots = media.filter(m => m.type === 'screenshot' || m.type === 'Screenshot');
+
+  if (screenshots.length === 0) {
+    savedScreenshotsEl.innerHTML = '<div class="no-screenshots">No screenshots yet</div>';
+    return;
+  }
+
+  screenshots.forEach((item) => {
+    const div = document.createElement('div');
+    div.className = 'saved-screenshot-item';
+
+    const img = document.createElement('img');
+    img.src = item.thumbnail_url || item.file_url;
+    img.alt = item.name || 'Screenshot';
+    img.onerror = () => {
+      div.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:10px;">Failed</div>';
+    };
+
+    div.appendChild(img);
+
+    // Click to open in modal or new tab
+    div.addEventListener('click', () => {
+      window.open(item.file_url, '_blank');
+    });
+
+    savedScreenshotsEl.appendChild(div);
+  });
+}
+
+/**
+ * Save event changes to API
+ */
+async function saveEventChanges() {
+  if (!currentMatchedEvent || !settings.apiUrl || !settings.apiToken) {
+    showToast('Cannot save - no event selected or API not configured', 'error');
+    return;
+  }
+
+  editorSaveBtn.disabled = true;
+  editorSaveBtn.textContent = 'Saving...';
+  editorSaveBtn.classList.add('saving');
+
+  try {
+    const payload = {
+      event_type_id: editorEventType.value ? parseInt(editorEventType.value, 10) : null,
+      tag_ids: Array.from(selectedTagIds),
+      distances_km: selectedDistanceValues,
+      notes: editorNotes.value || null,
+    };
+
+    const response = await fetch(`${settings.apiUrl}/api/extension/events/${currentMatchedEvent.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${settings.apiToken}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Save failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // Update current matched event with response
+    if (data.event) {
+      currentMatchedEvent = { ...currentMatchedEvent, ...data.event };
+    }
+
+    editorSaveBtn.textContent = 'Saved!';
+    editorSaveBtn.classList.remove('saving');
+    editorSaveBtn.classList.add('saved');
+    showToast('Event updated successfully', 'success');
+
+    setTimeout(() => {
+      editorSaveBtn.textContent = 'Save Changes';
+      editorSaveBtn.classList.remove('saved');
+      editorSaveBtn.disabled = false;
+    }, 1500);
+
+  } catch (error) {
+    console.error('[EventAtlas] Error saving event:', error);
+    editorSaveBtn.textContent = 'Error';
+    editorSaveBtn.classList.remove('saving');
+    editorSaveBtn.classList.add('error');
+    showToast(error.message || 'Failed to save changes', 'error');
+
+    setTimeout(() => {
+      editorSaveBtn.textContent = 'Save Changes';
+      editorSaveBtn.classList.remove('error');
+      editorSaveBtn.disabled = false;
+    }, 2000);
+  }
+}
+
+/**
+ * Capture and upload screenshot for event
+ */
+async function captureAndUploadEventScreenshot() {
+  if (!currentMatchedEvent || !settings.apiUrl || !settings.apiToken) {
+    showToast('Cannot capture - no event selected or API not configured', 'error');
+    return;
+  }
+
+  captureEventScreenshotBtn.disabled = true;
+  captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Capturing...';
+
+  try {
+    // Get current tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (!tab?.windowId) {
+      throw new Error('No active tab found');
+    }
+
+    // Capture screenshot
+    const screenshot = await captureScreenshot(tab.windowId);
+
+    if (!screenshot) {
+      throw new Error('Failed to capture screenshot');
+    }
+
+    // Upload to API
+    captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Uploading...';
+
+    const response = await fetch(`${settings.apiUrl}/api/extension/events/${currentMatchedEvent.id}/screenshot`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${settings.apiToken}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        image: screenshot,
+        filename: `screenshot_${Date.now()}.png`,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Upload failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // Add to current event's media
+    if (data.media_asset) {
+      if (!currentMatchedEvent.media) {
+        currentMatchedEvent.media = [];
+      }
+      currentMatchedEvent.media.push(data.media_asset);
+      renderSavedScreenshots(currentMatchedEvent.media);
+    }
+
+    captureEventScreenshotBtn.innerHTML = '<span>&#10003;</span> Uploaded!';
+    captureEventScreenshotBtn.classList.add('success');
+    showToast('Screenshot uploaded successfully', 'success');
+
+    setTimeout(() => {
+      captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Capture';
+      captureEventScreenshotBtn.classList.remove('success');
+      captureEventScreenshotBtn.disabled = false;
+    }, 1500);
+
+  } catch (error) {
+    console.error('[EventAtlas] Error capturing screenshot:', error);
+    captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Capture';
+    captureEventScreenshotBtn.disabled = false;
+    showToast(error.message || 'Failed to capture screenshot', 'error');
+  }
+}
+
+// Event Editor Event Listeners
+editorSaveBtn.addEventListener('click', saveEventChanges);
+addCustomDistanceBtn.addEventListener('click', addCustomDistance);
+captureEventScreenshotBtn.addEventListener('click', captureAndUploadEventScreenshot);
+
+// Handle Enter key on custom distance input
+customDistanceInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addCustomDistance();
   }
 });
 
