@@ -67,7 +67,11 @@ let filterState = {
   missingTags: false,
   missingDistances: false,
   mode: 'any',
+  startsFrom: null, // 'this_month', 'next_month', '2_months', '3_months', '6_months', or ISO date string
 };
+
+// Storage key for filter state persistence
+const FILTER_STATE_KEY = 'eventatlas_filter_state';
 
 // Link Discovery state
 let currentLinkDiscovery = null;
@@ -2663,6 +2667,12 @@ async function fetchEventList() {
     if (filterState.missingDistances) params.append('missing_distances', '1');
     params.append('filter_mode', filterState.mode);
 
+    // Add starts_from filter if set
+    const startsFromDate = getStartsFromDate(filterState.startsFrom);
+    if (startsFromDate) {
+      params.append('starts_from', startsFromDate);
+    }
+
     const response = await fetch(`${settings.apiUrl}/api/extension/event-list?${params}`, {
       headers: {
         Authorization: `Bearer ${settings.apiToken}`,
@@ -2705,8 +2715,12 @@ function renderEventList() {
   eventListCache.forEach((event) => {
     const item = document.createElement('div');
     item.className = 'event-list-item';
+    const startDate = event.start_datetime ? formatEventDate(event.start_datetime) : '';
     item.innerHTML = `
-      <div class="event-list-item-title">${escapeHtml(event.name)}</div>
+      <div class="event-list-item-header">
+        <div class="event-list-item-title">${escapeHtml(event.name)}</div>
+        ${startDate ? `<div class="event-list-item-date">${escapeHtml(startDate)}</div>` : ''}
+      </div>
       <div class="event-list-item-url">${escapeHtml(event.primary_url || '')}</div>
       <div class="event-list-item-meta">
         ${formatEventType(event.event_type)}
@@ -2756,6 +2770,127 @@ function formatDistances(distances) {
   if (!distances || distances.length === 0) return '';
   const formatted = distances.map((d) => `${d}km`).join(', ');
   return `<span class="meta-badge meta-distance">${escapeHtml(formatted)}</span>`;
+}
+
+/**
+ * Format a date as "Jan 1, 2026"
+ */
+function formatEventDate(dateString) {
+  if (!dateString) return '';
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Get the first day of a month offset from now
+ * @param {number} monthsOffset - 0 for this month, 1 for next month, etc.
+ * @returns {string} ISO date string (YYYY-MM-DD)
+ */
+function getFirstOfMonth(monthsOffset) {
+  const date = new Date();
+  date.setMonth(date.getMonth() + monthsOffset);
+  date.setDate(1);
+  return date.toISOString().split('T')[0];
+}
+
+/**
+ * Get a month label like "Jan 2026"
+ */
+function getMonthLabel(monthsOffset) {
+  const date = new Date();
+  date.setMonth(date.getMonth() + monthsOffset);
+  return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
+/**
+ * Build the "Starts from" filter options with dynamic month labels
+ */
+function buildStartsFromOptions() {
+  return [
+    { value: '', label: 'All dates' },
+    { value: 'this_month', label: `${getMonthLabel(0)}+` },
+    { value: 'next_month', label: `${getMonthLabel(1)}+` },
+    { value: '2_months', label: `${getMonthLabel(2)}+` },
+    { value: '3_months', label: `${getMonthLabel(3)}+` },
+    { value: '6_months', label: `${getMonthLabel(6)}+` },
+    { value: 'custom', label: 'Custom...' },
+  ];
+}
+
+/**
+ * Convert filter preset to actual ISO date
+ */
+function getStartsFromDate(presetOrDate) {
+  if (!presetOrDate) return null;
+
+  switch (presetOrDate) {
+    case 'this_month': return getFirstOfMonth(0);
+    case 'next_month': return getFirstOfMonth(1);
+    case '2_months': return getFirstOfMonth(2);
+    case '3_months': return getFirstOfMonth(3);
+    case '6_months': return getFirstOfMonth(6);
+    default:
+      // Assume it's an ISO date string
+      if (/^\d{4}-\d{2}-\d{2}$/.test(presetOrDate)) {
+        return presetOrDate;
+      }
+      return null;
+  }
+}
+
+/**
+ * Save filter state to storage
+ */
+async function saveFilterState() {
+  try {
+    await chrome.storage.local.set({ [FILTER_STATE_KEY]: filterState });
+  } catch (err) {
+    console.error('Error saving filter state:', err);
+  }
+}
+
+/**
+ * Load filter state from storage
+ */
+async function loadFilterState() {
+  try {
+    const result = await chrome.storage.local.get([FILTER_STATE_KEY]);
+    if (result[FILTER_STATE_KEY]) {
+      filterState = { ...filterState, ...result[FILTER_STATE_KEY] };
+    }
+  } catch (err) {
+    console.error('Error loading filter state:', err);
+  }
+}
+
+/**
+ * Update the "Starts from" dropdown options
+ */
+function updateStartsFromDropdown() {
+  const dropdown = document.getElementById('filterStartsFrom');
+  if (!dropdown) return;
+
+  const options = buildStartsFromOptions();
+  dropdown.innerHTML = options.map(opt =>
+    `<option value="${opt.value}">${escapeHtml(opt.label)}</option>`
+  ).join('');
+
+  // Set current value
+  if (filterState.startsFrom) {
+    // Check if it's a preset
+    const presets = ['this_month', 'next_month', '2_months', '3_months', '6_months'];
+    if (presets.includes(filterState.startsFrom)) {
+      dropdown.value = filterState.startsFrom;
+    } else {
+      dropdown.value = 'custom';
+    }
+  } else {
+    dropdown.value = '';
+  }
 }
 
 /**
@@ -2839,25 +2974,62 @@ if (tabNavigation) {
 
 // Event Listeners - Event List Filters
 if (filterMissingTags) {
-  filterMissingTags.addEventListener('change', (e) => {
+  filterMissingTags.addEventListener('change', async (e) => {
     filterState.missingTags = e.target.checked;
+    await saveFilterState();
     fetchEventList();
   });
 }
 
 if (filterMissingDistances) {
-  filterMissingDistances.addEventListener('change', (e) => {
+  filterMissingDistances.addEventListener('change', async (e) => {
     filterState.missingDistances = e.target.checked;
+    await saveFilterState();
+    fetchEventList();
+  });
+}
+
+// Starts from filter dropdown
+const filterStartsFrom = document.getElementById('filterStartsFrom');
+const customDateInput = document.getElementById('filterCustomDate');
+const customDateContainer = document.getElementById('customDateContainer');
+
+if (filterStartsFrom) {
+  filterStartsFrom.addEventListener('change', async (e) => {
+    const value = e.target.value;
+    if (value === 'custom') {
+      // Show custom date picker
+      if (customDateContainer) customDateContainer.style.display = 'block';
+      // Set default to first of next month if not already set
+      if (customDateInput && !customDateInput.value) {
+        customDateInput.value = getFirstOfMonth(1);
+      }
+      // Don't update filter state yet - wait for date input
+    } else {
+      // Hide custom date picker
+      if (customDateContainer) customDateContainer.style.display = 'none';
+      filterState.startsFrom = value || null;
+      await saveFilterState();
+      fetchEventList();
+    }
+  });
+}
+
+if (customDateInput) {
+  customDateInput.addEventListener('change', async (e) => {
+    filterState.startsFrom = e.target.value || null;
+    await saveFilterState();
     fetchEventList();
   });
 }
 
 // Filter mode toggle
 document.querySelectorAll('.filter-mode-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', async () => {
     document.querySelectorAll('.filter-mode-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     filterState.mode = btn.dataset.mode;
+    await saveFilterState();
     fetchEventList();
   });
 });
@@ -4499,6 +4671,9 @@ async function init() {
   await updateTabInfo();
   await loadFromStorage();
 
+  // Load filter state
+  await loadFilterState();
+
   // Sync with API in background (don't block UI)
   syncWithApi().then((result) => {
     if (result) {
@@ -4525,6 +4700,26 @@ async function init() {
   // Apply Event List settings to UI
   if (autoSwitchTabSetting) autoSwitchTabSetting.checked = settings.autoSwitchTab !== false;
   if (eventListRefreshIntervalSetting) eventListRefreshIntervalSetting.value = settings.eventListRefreshInterval || '0';
+
+  // Apply filter state to UI
+  if (filterMissingTags) filterMissingTags.checked = filterState.missingTags;
+  if (filterMissingDistances) filterMissingDistances.checked = filterState.missingDistances;
+  if (filterState.mode) {
+    document.querySelectorAll('.filter-mode-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.mode === filterState.mode);
+    });
+  }
+
+  // Initialize "Starts from" dropdown with dynamic options
+  updateStartsFromDropdown();
+
+  // Show custom date input if a custom date is set
+  const customDateContainer = document.getElementById('customDateContainer');
+  const customDateInput = document.getElementById('filterCustomDate');
+  if (filterState.startsFrom && !['this_month', 'next_month', '2_months', '3_months', '6_months'].includes(filterState.startsFrom)) {
+    if (customDateContainer) customDateContainer.style.display = 'block';
+    if (customDateInput) customDateInput.value = filterState.startsFrom;
+  }
 
   // Setup background refresh timer
   setupEventListRefresh();
