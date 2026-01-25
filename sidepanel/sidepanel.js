@@ -2995,9 +2995,9 @@ function renderSavedScreenshots(media) {
     });
     div.appendChild(deleteBtn);
 
-    // Click to open in modal or new tab
+    // Click to open in lightbox modal
     div.addEventListener('click', () => {
-      window.open(item.file_url, '_blank');
+      openScreenshotModal(item.file_url);
     });
 
     savedScreenshotsEl.appendChild(div);
