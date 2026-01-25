@@ -219,6 +219,185 @@
       color: #374151;
     }
 
+    /* Link Discovery View */
+    #linkDiscoveryView {
+      padding: 0;
+      margin-bottom: 16px;
+    }
+
+    .discovery-header {
+      margin-bottom: 12px;
+    }
+
+    .discovery-source {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .discovery-source-name {
+      font-weight: 600;
+      font-size: 14px;
+      color: #1f2937;
+    }
+
+    .discovery-api-badge {
+      background: #dbeafe;
+      color: #1e40af;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+
+    .discovery-last-scraped {
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    .discovery-actions {
+      margin-bottom: 12px;
+    }
+
+    .scan-btn {
+      width: 100%;
+      background: #059669;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.15s ease;
+    }
+
+    .scan-btn:hover {
+      background: #047857;
+    }
+
+    .scan-btn:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+
+    .scan-btn-icon {
+      font-size: 14px;
+    }
+
+    .link-section {
+      margin-top: 16px;
+    }
+
+    .link-section h4 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #374151;
+    }
+
+    .links-list {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      background: #ffffff;
+    }
+
+    .links-list:empty::after {
+      content: 'No links';
+      display: block;
+      padding: 12px;
+      text-align: center;
+      color: #9ca3af;
+      font-size: 12px;
+    }
+
+    .link-item {
+      padding: 8px 12px;
+      font-size: 12px;
+      border-bottom: 1px solid #f3f4f6;
+      word-break: break-all;
+      line-height: 1.4;
+    }
+
+    .link-item:last-child {
+      border-bottom: none;
+    }
+
+    .link-item.new-link {
+      background: #ecfdf5;
+    }
+
+    .link-item.known-link {
+      background: #ffffff;
+      color: #6b7280;
+    }
+
+    .link-item label {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .link-item input[type="checkbox"] {
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+
+    .select-all-row {
+      padding: 8px 12px;
+      border-bottom: 1px solid #e5e7eb;
+      background: #f9fafb;
+      border-radius: 6px 6px 0 0;
+    }
+
+    .select-all-row label {
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #374151;
+    }
+
+    .add-links-btn {
+      margin-top: 12px;
+      background: #059669;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 13px;
+      width: 100%;
+      transition: background 0.15s ease;
+    }
+
+    .add-links-btn:hover {
+      background: #047857;
+    }
+
+    .add-links-btn:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+
+    .new-links-section .links-list {
+      border-color: #a7f3d0;
+    }
+
+    .known-links-section .links-list {
+      border-color: #e5e7eb;
+    }
+
     /* Legacy status section - kept for backward compatibility */
     .status {
       display: none;
@@ -3035,6 +3214,42 @@
       <div class="duplicate-dialog-actions">
         <button class="bundle-action-btn primary" id="duplicateReplace">Replace</button>
         <button class="bundle-action-btn secondary" id="duplicateSkip">Skip</button>
+      </div>
+    </div>
+
+    <!-- Link Discovery View -->
+    <div id="linkDiscoveryView" style="display: none;">
+      <div class="discovery-header">
+        <div class="discovery-source">
+          <span class="discovery-source-name" id="discoverySourceName">Unknown Source</span>
+          <span class="discovery-api-badge" id="discoveryApiBadge" style="display: none;">API</span>
+        </div>
+        <span class="discovery-last-scraped" id="discoveryLastScraped"></span>
+      </div>
+
+      <div class="discovery-actions">
+        <button id="scanPageLinks" class="scan-btn">
+          <span class="scan-btn-icon">&#128269;</span>
+          Scan Page for Links
+        </button>
+      </div>
+
+      <div id="linkComparisonResults" style="display: none;">
+        <div class="link-section new-links-section">
+          <h4>New Links (<span id="newLinksCount">0</span>)</h4>
+          <div class="select-all-row">
+            <label><input type="checkbox" id="selectAllNewLinks" checked> Select All</label>
+          </div>
+          <div id="newLinksList" class="links-list"></div>
+          <button id="addNewLinksBtn" class="add-links-btn" style="display: none;">
+            Add <span id="selectedLinksCount">0</span> Selected Links to Pipeline
+          </button>
+        </div>
+
+        <div class="link-section known-links-section">
+          <h4>Known Links (<span id="knownLinksCount">0</span>)</h4>
+          <div id="knownLinksList" class="links-list"></div>
+        </div>
       </div>
     </div>
 

@@ -69,6 +69,12 @@ let filterState = {
   mode: 'any',
 };
 
+// Link Discovery state
+let currentLinkDiscovery = null;
+let extractedPageLinks = [];
+let newDiscoveredLinks = [];
+let selectedNewLinks = new Set();
+
 // DOM Elements - Views
 const bundlesView = document.getElementById('bundlesView');
 const detailView = document.getElementById('detailView');
@@ -184,6 +190,21 @@ const pageInfoAdminLink = document.getElementById('pageInfoAdminLink');
 // DOM Elements - Bundle Section (for conditional visibility)
 const captureButtons = document.getElementById('captureButtons');
 const bundleSection = document.querySelector('.bundle-section');
+
+// DOM Elements - Link Discovery View
+const linkDiscoveryView = document.getElementById('linkDiscoveryView');
+const discoverySourceName = document.getElementById('discoverySourceName');
+const discoveryApiBadge = document.getElementById('discoveryApiBadge');
+const discoveryLastScraped = document.getElementById('discoveryLastScraped');
+const scanPageLinksBtn = document.getElementById('scanPageLinks');
+const linkComparisonResults = document.getElementById('linkComparisonResults');
+const newLinksCount = document.getElementById('newLinksCount');
+const knownLinksCount = document.getElementById('knownLinksCount');
+const newLinksList = document.getElementById('newLinksList');
+const knownLinksList = document.getElementById('knownLinksList');
+const selectAllNewLinks = document.getElementById('selectAllNewLinks');
+const addNewLinksBtn = document.getElementById('addNewLinksBtn');
+const selectedLinksCountEl = document.getElementById('selectedLinksCount');
 
 // DOM Elements - Event Editor
 const eventEditor = document.getElementById('eventEditor');
@@ -742,6 +763,8 @@ function hidePageInfoStatus() {
   pageInfoDetails.style.display = 'none';
   // Show bundle UI when status is hidden
   updateBundleUIVisibility(false);
+  // Also hide link discovery view
+  hideLinkDiscoveryView();
 }
 
 /**
@@ -780,17 +803,20 @@ async function updateUrlStatus() {
         updateStatusViewLink(result.event.id);
         updateBundleUIVisibility(true);
         showEventEditor(result.event);
+        hideLinkDiscoveryView();
       } else {
         // EventAtlas URL but no match found (maybe event deleted)
         updatePageInfoBadge('no-match', 'EventAtlas Page', '\u25CB');
         updateStatusViewLink(null);
         updateBundleUIVisibility(false);
         hideEventEditor();
+        hideLinkDiscoveryView();
       }
     } catch (error) {
       console.error('[EventAtlas] Status update error:', error);
       hidePageInfoStatus();
       hideEventEditor();
+      hideLinkDiscoveryView();
     }
     return;
   }
@@ -808,28 +834,284 @@ async function updateUrlStatus() {
       updateStatusViewLink(null);
       updateBundleUIVisibility(false);
       hideEventEditor();
+      hideLinkDiscoveryView();
     } else if (result.match_type === 'event') {
       updatePageInfoBadge('event', 'Known Event', '\u2713');
       updateStatusViewLink(result.event?.id);
       updateBundleUIVisibility(true);
       // Show event editor
       showEventEditor(result.event);
+      hideLinkDiscoveryView();
     } else if (result.match_type === 'link_discovery') {
       updatePageInfoBadge('link-discovery', 'Discovery', '\u2295');
       updateStatusViewLink(null);
       updateBundleUIVisibility(false);
       hideEventEditor();
+      // Show the link discovery view with enhanced data
+      showLinkDiscoveryView(result.link_discovery);
     } else if (result.match_type === 'content_item') {
       updatePageInfoBadge('content-item', 'Scraped', '\u25D0');
       updateStatusViewLink(null);
       updateBundleUIVisibility(false);
       hideEventEditor();
+      hideLinkDiscoveryView();
     }
   } catch (error) {
     console.error('[EventAtlas] Status update error:', error);
     hidePageInfoStatus();
     hideEventEditor();
+    hideLinkDiscoveryView();
   }
+}
+
+/**
+ * Show the link discovery view with data from lookup response
+ */
+function showLinkDiscoveryView(linkDiscoveryData) {
+  currentLinkDiscovery = linkDiscoveryData;
+
+  // Update header info
+  discoverySourceName.textContent = linkDiscoveryData.organizer_name || 'Unknown Source';
+
+  // Show/hide API badge
+  discoveryApiBadge.style.display = linkDiscoveryData.has_api_endpoint ? 'inline-block' : 'none';
+
+  // Show last scraped date
+  if (linkDiscoveryData.last_scraped_at) {
+    const date = new Date(linkDiscoveryData.last_scraped_at);
+    discoveryLastScraped.textContent = `Last scraped: ${date.toLocaleDateString()}`;
+  } else {
+    discoveryLastScraped.textContent = 'Never scraped';
+  }
+
+  // Reset state
+  extractedPageLinks = [];
+  newDiscoveredLinks = [];
+  selectedNewLinks = new Set();
+  linkComparisonResults.style.display = 'none';
+
+  // Show the view
+  linkDiscoveryView.style.display = 'block';
+}
+
+/**
+ * Hide the link discovery view
+ */
+function hideLinkDiscoveryView() {
+  if (linkDiscoveryView) {
+    linkDiscoveryView.style.display = 'none';
+  }
+  currentLinkDiscovery = null;
+}
+
+/**
+ * Scan the current page for links using chrome.scripting
+ */
+async function scanPageForLinks() {
+  if (!currentLinkDiscovery) return;
+
+  const btn = scanPageLinksBtn;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="scan-btn-icon">\u23F3</span> Scanning...';
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    // Execute script in page context to extract links
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: extractLinksFromPage,
+      args: [currentLinkDiscovery.url_pattern],
+    });
+
+    extractedPageLinks = results[0]?.result || [];
+
+    // Compare with known links
+    compareLinksAndRender();
+
+    btn.innerHTML = '<span class="scan-btn-icon">\uD83D\uDD04</span> Rescan Page';
+  } catch (error) {
+    console.error('[EventAtlas] Error scanning page:', error);
+    showToast('Failed to scan page for links', 'error');
+    btn.innerHTML = '<span class="scan-btn-icon">\uD83D\uDD0D</span> Scan Page for Links';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/**
+ * Function injected into page to extract links
+ * @param {string|null} urlPattern - Regex pattern to filter links
+ */
+function extractLinksFromPage(urlPattern) {
+  const allLinks = document.querySelectorAll('a[href]');
+  const uniqueUrls = new Set();
+
+  allLinks.forEach((a) => {
+    const href = a.href;
+    if (href && href.startsWith('http')) {
+      // Normalize URL - remove trailing slashes and fragments
+      try {
+        const url = new URL(href);
+        let normalized = url.origin + url.pathname.replace(/\/$/, '');
+
+        if (urlPattern) {
+          try {
+            // URL pattern uses ~ as delimiter in PHP, we just use the pattern content
+            const regex = new RegExp(urlPattern, 'i');
+            if (regex.test(href)) {
+              uniqueUrls.add(normalized);
+            }
+          } catch (e) {
+            // Invalid regex, add anyway
+            uniqueUrls.add(normalized);
+          }
+        } else {
+          uniqueUrls.add(normalized);
+        }
+      } catch (e) {
+        // Invalid URL, skip
+      }
+    }
+  });
+
+  return Array.from(uniqueUrls);
+}
+
+/**
+ * Compare extracted links with known child links and render results
+ */
+function compareLinksAndRender() {
+  if (!currentLinkDiscovery) return;
+
+  // Build set of known normalized URLs
+  const knownUrls = new Set();
+  const childLinks = currentLinkDiscovery.child_links || [];
+
+  childLinks.forEach((link) => {
+    const normalized = normalizeUrl(link.url);
+    knownUrls.add(normalized);
+  });
+
+  // Find new links (on page but not in known)
+  newDiscoveredLinks = extractedPageLinks.filter((url) => {
+    const normalized = normalizeUrl(url);
+    return !knownUrls.has(normalized);
+  });
+
+  // Start with all new links selected
+  selectedNewLinks = new Set(newDiscoveredLinks);
+
+  // Render results
+  renderLinkComparison(childLinks);
+}
+
+/**
+ * Render the link comparison results
+ */
+function renderLinkComparison(childLinks) {
+  // Update counts
+  newLinksCount.textContent = newDiscoveredLinks.length;
+  knownLinksCount.textContent = childLinks.length;
+
+  // Render new links with checkboxes
+  newLinksList.innerHTML = newDiscoveredLinks
+    .map(
+      (url) => `
+    <div class="link-item new-link">
+      <label>
+        <input type="checkbox" class="new-link-checkbox" data-url="${escapeHtml(url)}" checked>
+        <span>${escapeHtml(url)}</span>
+      </label>
+    </div>
+  `
+    )
+    .join('');
+
+  // Setup checkbox listeners
+  newLinksList.querySelectorAll('.new-link-checkbox').forEach((cb) => {
+    cb.addEventListener('change', (e) => {
+      if (e.target.checked) {
+        selectedNewLinks.add(e.target.dataset.url);
+      } else {
+        selectedNewLinks.delete(e.target.dataset.url);
+      }
+      updateSelectedLinksCount();
+    });
+  });
+
+  // Setup select all
+  selectAllNewLinks.checked = newDiscoveredLinks.length > 0;
+  selectAllNewLinks.disabled = newDiscoveredLinks.length === 0;
+
+  // Render known links (read-only)
+  knownLinksList.innerHTML = childLinks.map((link) => `<div class="link-item known-link">${escapeHtml(link.url)}</div>`).join('');
+
+  updateSelectedLinksCount();
+  linkComparisonResults.style.display = 'block';
+}
+
+/**
+ * Update the selected links count and button visibility
+ */
+function updateSelectedLinksCount() {
+  const count = selectedNewLinks.size;
+  selectedLinksCountEl.textContent = count;
+  addNewLinksBtn.style.display = count > 0 ? 'block' : 'none';
+  addNewLinksBtn.disabled = count === 0;
+}
+
+/**
+ * Add selected new links to the pipeline via API
+ */
+async function addNewLinksToPipeline() {
+  const linksToAdd = Array.from(selectedNewLinks);
+  if (linksToAdd.length === 0 || !currentLinkDiscovery) return;
+
+  const btn = addNewLinksBtn;
+  btn.disabled = true;
+  btn.textContent = 'Adding...';
+
+  try {
+    const response = await fetch(`${settings.apiUrl}/api/extension/add-discovered-links`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${settings.apiToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        organizer_link_id: currentLinkDiscovery.organizer_link_id,
+        urls: linksToAdd,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    showToast(`Added ${data.created_count} new links to pipeline`);
+
+    // Refresh the lookup to get updated child links
+    await updateUrlStatus();
+  } catch (error) {
+    console.error('[EventAtlas] Error adding links:', error);
+    showToast('Error adding links: ' + error.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `Add <span id="selectedLinksCount">${selectedNewLinks.size}</span> Selected Links to Pipeline`;
+  }
+}
+
+/**
+ * Escape HTML special characters
+ */
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
 }
 
 /**
@@ -2225,6 +2507,30 @@ backNav.addEventListener('click', () => {
 copyBtn.addEventListener('click', copySingleToClipboard);
 removeBtn.addEventListener('click', removeCurrentFromBundle);
 addScreenshotBtn.addEventListener('click', addScreenshotToCurrentCapture);
+
+// Event Listeners - Link Discovery
+if (scanPageLinksBtn) {
+  scanPageLinksBtn.addEventListener('click', scanPageForLinks);
+}
+
+if (selectAllNewLinks) {
+  selectAllNewLinks.addEventListener('change', (e) => {
+    if (e.target.checked) {
+      selectedNewLinks = new Set(newDiscoveredLinks);
+    } else {
+      selectedNewLinks = new Set();
+    }
+    // Update all checkboxes
+    newLinksList.querySelectorAll('.new-link-checkbox').forEach((cb) => {
+      cb.checked = e.target.checked;
+    });
+    updateSelectedLinksCount();
+  });
+}
+
+if (addNewLinksBtn) {
+  addNewLinksBtn.addEventListener('click', addNewLinksToPipeline);
+}
 
 textToggle.addEventListener('click', () => {
   const bundle = getCurrentBundle();
