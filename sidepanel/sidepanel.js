@@ -2401,6 +2401,11 @@ function renderEventList() {
     item.innerHTML = `
       <div class="event-list-item-title">${escapeHtml(event.name)}</div>
       <div class="event-list-item-url">${escapeHtml(event.primary_url || '')}</div>
+      <div class="event-list-item-meta">
+        ${formatEventType(event.event_type)}
+        ${formatTags(event.tags || [])}
+        ${formatDistances(event.distances || [])}
+      </div>
       <div class="event-list-item-missing">${formatMissingBadges(event.missing || [])}</div>
     `;
     item.addEventListener('click', () => navigateToEvent(event));
@@ -2413,6 +2418,37 @@ function renderEventList() {
  */
 function formatMissingBadges(missing) {
   return missing.map((m) => `<span class="missing-badge">${escapeHtml(m)}</span>`).join('');
+}
+
+/**
+ * Format event type badge
+ */
+function formatEventType(eventType) {
+  if (!eventType) return '';
+  return `<span class="meta-badge meta-type">${escapeHtml(eventType)}</span>`;
+}
+
+/**
+ * Format tags with "1 tag + x more" pattern
+ */
+function formatTags(tags) {
+  if (!tags || tags.length === 0) return '';
+  const firstTag = tags[0];
+  const moreCount = tags.length - 1;
+  let html = `<span class="meta-badge meta-tag">${escapeHtml(firstTag)}</span>`;
+  if (moreCount > 0) {
+    html += `<span class="meta-more">+${moreCount}</span>`;
+  }
+  return html;
+}
+
+/**
+ * Format distances array
+ */
+function formatDistances(distances) {
+  if (!distances || distances.length === 0) return '';
+  const formatted = distances.map((d) => `${d}km`).join(', ');
+  return `<span class="meta-badge meta-distance">${escapeHtml(formatted)}</span>`;
 }
 
 /**
