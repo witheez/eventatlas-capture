@@ -35,6 +35,8 @@ const DEFAULT_SETTINGS = {
     custom: [],
   },
   screenshotUploadTiming: 'immediate', // 'immediate' or 'on_save'
+  autoSwitchTab: true, // Switch to Current tab when clicking event in list
+  eventListRefreshInterval: 0, // Background refresh interval in minutes (0 = off)
 };
 
 // App state
@@ -56,11 +58,36 @@ let pendingCapture = null;
 // Drag and drop state
 let draggedPage = null; // { bundleId, pageIndex }
 
+// Event list state
+let eventListCache = [];
+let eventListLastFetched = null;
+let eventListRefreshTimer = null;
+let activeTab = 'current'; // 'current' or 'event-list'
+let filterState = {
+  missingTags: false,
+  missingDistances: false,
+  mode: 'any',
+};
+
 // DOM Elements - Views
 const bundlesView = document.getElementById('bundlesView');
 const detailView = document.getElementById('detailView');
 const backNav = document.getElementById('backNav');
 const backNavText = document.getElementById('backNavText');
+const tabNavigation = document.getElementById('tabNavigation');
+
+// DOM Elements - Event List View
+const eventListView = document.getElementById('eventListView');
+const eventListContainer = document.getElementById('eventListContainer');
+const eventListLoading = document.getElementById('eventListLoading');
+const eventListEmpty = document.getElementById('eventListEmpty');
+const filterMissingTags = document.getElementById('filterMissingTags');
+const filterMissingDistances = document.getElementById('filterMissingDistances');
+const refreshEventListBtn = document.getElementById('refreshEventList');
+
+// DOM Elements - Event List Settings
+const autoSwitchTabSetting = document.getElementById('autoSwitchTabSetting');
+const eventListRefreshIntervalSetting = document.getElementById('eventListRefreshInterval');
 
 // DOM Elements - Settings
 const settingsBtn = document.getElementById('settingsBtn');
@@ -2273,6 +2300,247 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, _tab) => {
 });
 
 // ========================================
+// Tab Navigation & Event List Functions
+// ========================================
+
+/**
+ * Escape HTML special characters
+ */
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/**
+ * Switch between tabs (Current/Event List)
+ */
+function switchMainTab(tabName) {
+  activeTab = tabName;
+
+  // Update tab buttons
+  if (tabNavigation) {
+    tabNavigation.querySelectorAll('.tab-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+  }
+
+  // Toggle views
+  if (bundlesView) bundlesView.style.display = tabName === 'current' ? 'block' : 'none';
+  if (eventListView) eventListView.style.display = tabName === 'event-list' ? 'block' : 'none';
+
+  // Hide back nav when on event list
+  if (backNav) backNav.classList.remove('visible');
+
+  // Fetch event list if switching to it and cache is empty/stale
+  if (tabName === 'event-list' && eventListCache.length === 0) {
+    fetchEventList();
+  }
+}
+
+/**
+ * Fetch event list from API
+ */
+async function fetchEventList() {
+  if (!settings.apiUrl || !settings.apiToken) {
+    showEventListEmpty('Please configure API settings');
+    return;
+  }
+
+  showEventListLoading();
+
+  try {
+    const params = new URLSearchParams();
+    if (filterState.missingTags) params.append('missing_tags', '1');
+    if (filterState.missingDistances) params.append('missing_distances', '1');
+    params.append('filter_mode', filterState.mode);
+
+    const response = await fetch(`${settings.apiUrl}/api/extension/event-list?${params}`, {
+      headers: {
+        Authorization: `Bearer ${settings.apiToken}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) throw new Error('Failed to fetch event list');
+
+    const data = await response.json();
+    eventListCache = data.events || [];
+    eventListLastFetched = Date.now();
+
+    renderEventList();
+  } catch (error) {
+    console.error('[EventAtlas] Event list fetch error:', error);
+    showEventListEmpty('Error loading events');
+  }
+}
+
+/**
+ * Render the event list
+ */
+function renderEventList() {
+  if (!eventListContainer) return;
+
+  if (eventListLoading) eventListLoading.style.display = 'none';
+  eventListContainer.innerHTML = '';
+
+  if (eventListCache.length === 0) {
+    if (eventListEmpty) {
+      eventListEmpty.textContent = 'No events match your filters';
+      eventListEmpty.style.display = 'block';
+    }
+    return;
+  }
+
+  if (eventListEmpty) eventListEmpty.style.display = 'none';
+
+  eventListCache.forEach((event) => {
+    const item = document.createElement('div');
+    item.className = 'event-list-item';
+    item.innerHTML = `
+      <div class="event-list-item-title">${escapeHtml(event.name)}</div>
+      <div class="event-list-item-url">${escapeHtml(event.primary_url || '')}</div>
+      <div class="event-list-item-missing">${formatMissingBadges(event.missing || [])}</div>
+    `;
+    item.addEventListener('click', () => navigateToEvent(event));
+    eventListContainer.appendChild(item);
+  });
+}
+
+/**
+ * Format missing badges HTML
+ */
+function formatMissingBadges(missing) {
+  return missing.map((m) => `<span class="missing-badge">${escapeHtml(m)}</span>`).join('');
+}
+
+/**
+ * Show loading state for event list
+ */
+function showEventListLoading() {
+  if (eventListContainer) eventListContainer.innerHTML = '';
+  if (eventListEmpty) eventListEmpty.style.display = 'none';
+  if (eventListLoading) eventListLoading.style.display = 'block';
+}
+
+/**
+ * Show empty state for event list
+ */
+function showEventListEmpty(message) {
+  if (eventListContainer) eventListContainer.innerHTML = '';
+  if (eventListLoading) eventListLoading.style.display = 'none';
+  if (eventListEmpty) {
+    eventListEmpty.textContent = message || 'No events match your filters';
+    eventListEmpty.style.display = 'block';
+  }
+}
+
+/**
+ * Navigate to an event URL and optionally switch to Current tab
+ */
+async function navigateToEvent(event) {
+  // Mark as visited if we have the link ID
+  if (event.primary_link_id && settings.apiUrl && settings.apiToken) {
+    try {
+      await fetch(`${settings.apiUrl}/api/extension/event-list/mark-visited`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${settings.apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ event_link_id: event.primary_link_id }),
+      });
+    } catch (e) {
+      console.warn('[EventAtlas] Failed to mark visit:', e);
+    }
+  }
+
+  // Navigate browser to URL
+  if (event.primary_url) {
+    chrome.tabs.update({ url: event.primary_url });
+  }
+
+  // Auto-switch to Current tab if enabled
+  if (settings.autoSwitchTab) {
+    switchMainTab('current');
+  }
+}
+
+/**
+ * Setup background refresh timer for event list
+ */
+function setupEventListRefresh() {
+  if (eventListRefreshTimer) {
+    clearInterval(eventListRefreshTimer);
+    eventListRefreshTimer = null;
+  }
+
+  const interval = (settings.eventListRefreshInterval || 0) * 60 * 1000;
+
+  if (interval > 0) {
+    eventListRefreshTimer = setInterval(() => {
+      if (activeTab === 'event-list') {
+        fetchEventList();
+      }
+    }, interval);
+  }
+}
+
+// Event Listeners - Tab Navigation
+if (tabNavigation) {
+  tabNavigation.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => switchMainTab(btn.dataset.tab));
+  });
+}
+
+// Event Listeners - Event List Filters
+if (filterMissingTags) {
+  filterMissingTags.addEventListener('change', (e) => {
+    filterState.missingTags = e.target.checked;
+    fetchEventList();
+  });
+}
+
+if (filterMissingDistances) {
+  filterMissingDistances.addEventListener('change', (e) => {
+    filterState.missingDistances = e.target.checked;
+    fetchEventList();
+  });
+}
+
+// Filter mode toggle
+document.querySelectorAll('.filter-mode-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-mode-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    filterState.mode = btn.dataset.mode;
+    fetchEventList();
+  });
+});
+
+// Refresh button
+if (refreshEventListBtn) {
+  refreshEventListBtn.addEventListener('click', fetchEventList);
+}
+
+// Event List Settings listeners
+if (autoSwitchTabSetting) {
+  autoSwitchTabSetting.addEventListener('change', async () => {
+    settings.autoSwitchTab = autoSwitchTabSetting.checked;
+    await saveToStorage();
+  });
+}
+
+if (eventListRefreshIntervalSetting) {
+  eventListRefreshIntervalSetting.addEventListener('change', async () => {
+    settings.eventListRefreshInterval = parseInt(eventListRefreshIntervalSetting.value, 10);
+    await saveToStorage();
+    setupEventListRefresh();
+  });
+}
+
+// ========================================
 // Event Editor Functions
 // ========================================
 
@@ -3895,6 +4163,13 @@ async function init() {
   apiTokenSetting.value = settings.apiToken || '';
   syncModeSetting.value = settings.syncMode || 'both';
   screenshotUploadTimingSetting.value = settings.screenshotUploadTiming || 'immediate';
+
+  // Apply Event List settings to UI
+  if (autoSwitchTabSetting) autoSwitchTabSetting.checked = settings.autoSwitchTab !== false;
+  if (eventListRefreshIntervalSetting) eventListRefreshIntervalSetting.value = settings.eventListRefreshInterval || '0';
+
+  // Setup background refresh timer
+  setupEventListRefresh();
 
   // Apply distance presets to UI
   applyDistancePresetsToUI();
