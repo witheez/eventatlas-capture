@@ -1,0 +1,17 @@
+{
+  "name": "eventatlas-capture",
+  "version": "1.1.1",
+  "description": "Capture web content for EventAtlas - one-click content capture from any webpage",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox"
+  },
+  "devDependencies": {
+    "wxt": "^0.20.0"
+  }
+}
