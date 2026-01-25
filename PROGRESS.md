@@ -3,11 +3,13 @@
 > **New Agent?** Read `CONTEXT.md` first for session context and rules.
 > Also read `/Users/danielforstner/Herd/eventatlas/.claude/CLAUDE.md` for project rules.
 
-## Current Phase: 6 - Event Editing
+## Current Status: Feature Complete
 
-## Status: Planning Complete, Ready for Implementation
-
-**Detailed Plan:** See `docs/PLAN-2026-01-23-event-editing.md`
+All core phases are complete. The extension is fully functional for:
+- Content capture and bundling
+- URL status lookup (event, content item, link discovery)
+- Event editing (tags, distances, event type, notes, screenshots)
+- Link discovery comparison and adding new links
 
 ---
 
@@ -50,26 +52,24 @@
   - URL status indicator
   - Badge for known URLs
 
-### Phase 6: Event Editing 🔄 (Current)
-- **6a:** Database changes (media_assets, event_media) ⏳
-- **6b:** API endpoints (tags, types, distances, update, screenshot) ⏳
-- **6c:** Plugin event editor UI ⏳
+### Phase 6: Event Editing ✅
+- **6a:** Database changes (media_assets, event_media) ✅
+- **6b:** API endpoints (tags, types, distances, update, screenshot) ✅
+- **6c:** Plugin event editor UI ✅
+  - Event type dropdown
+  - Tags multi-select with create
+  - Distances picker with presets and custom
+  - Notes textarea
+  - Screenshot capture and upload
+  - Delete screenshot
+  - Saved screenshots gallery
 
----
-
-## Architecture Summary
-
-### Event-Driven (Not Organizer-Driven)
-Focus on **Events**, not organizers. Key question: "Has this URL been processed into an Event?"
-
-### URL Lookup Priority
-1. `event_links.url` → Returns event
-2. `content_items.source_url` → Returns content item
-3. `organizer_links.url` → Returns link discovery
-4. No match → "Not in EventAtlas"
-
-### Authentication
-Laravel Sanctum personal access tokens. Admin generates token in EventAtlas → pastes in extension settings.
+### Phase 7: Link Discovery Comparison ✅ (2026-01-25)
+- Enhanced lookup API with child_links, url_pattern
+- Scan page for links using chrome.scripting
+- Compare page links vs known child links
+- Checkbox selection for new links
+- Bulk add to pipeline via AddDiscoveredLinksController
 
 ---
 
@@ -82,10 +82,8 @@ eventatlas-capture/
 ├── content/
 │   └── content.js          # Page extraction (HTML, text, images, metadata)
 ├── sidepanel/
-│   ├── sidepanel.html      # Sidebar UI with all styles
-│   └── sidepanel.js        # Bundle management, settings, capture flow
-├── docs/
-│   └── PLAN-2026-01-23-event-editing.md  # Current phase plan
+│   ├── sidepanel.html      # Sidebar UI with all styles (~750 lines)
+│   └── sidepanel.js        # Bundle management, settings, capture flow (~1600 lines)
 ├── SPEC.md                 # Original idea spec
 ├── PROGRESS.md             # This file
 ├── CONTEXT.md              # Agent transfer context
@@ -94,26 +92,32 @@ eventatlas-capture/
 
 ---
 
-## Key Files in EventAtlas (Laravel)
+## API Endpoints (All Complete)
 
-| Area | Files |
-|------|-------|
-| **API Controllers** | `app/Http/Controllers/Api/Extension/*` |
-| **API Resources** | `app/Http/Resources/Extension/*` |
-| **URL Normalizer** | `app/Services/Extension/UrlNormalizer.php` |
-| **Token Management** | `app/Http/Controllers/V2/Admin/ApiTokenController.php` |
-| **Tests** | `tests/Feature/Api/Extension/*` |
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/extension/sync` | Bulk sync events and organizer links |
+| GET | `/api/extension/lookup` | Real-time URL lookup |
+| GET | `/api/extension/tags` | Get available tags |
+| POST | `/api/extension/tags` | Create new tag |
+| GET | `/api/extension/event-types` | Get available event types |
+| GET | `/api/extension/distances` | Get predefined distances |
+| PATCH | `/api/extension/events/{id}` | Update event (tags, type, distances, notes) |
+| POST | `/api/extension/events/{id}/screenshot` | Upload screenshot to event |
+| DELETE | `/api/extension/events/{id}/screenshot/{media}` | Delete screenshot |
+| GET | `/api/extension/event-list` | Get events for curation workflow |
+| POST | `/api/extension/event-list/mark-visited` | Mark event as visited |
+| POST | `/api/extension/add-discovered-links` | Add links from extension discovery |
 
 ---
 
-## API Endpoints
+## Future Enhancement Ideas
 
-| Method | Endpoint | Status | Purpose |
-|--------|----------|--------|---------|
-| GET | `/api/extension/sync` | ✅ | Bulk sync events and organizer links |
-| GET | `/api/extension/lookup` | ✅ | Real-time URL lookup |
-| GET | `/api/extension/tags` | ⏳ | Get available tags |
-| GET | `/api/extension/event-types` | ⏳ | Get available event types |
-| GET | `/api/extension/distances` | ⏳ | Get predefined distances |
-| PATCH | `/api/extension/events/{id}` | ⏳ | Update event (tags, type, distances) |
-| POST | `/api/extension/events/{id}/screenshot` | ⏳ | Upload screenshot to event |
+These are not planned, just potential future work:
+
+- [ ] Dual-column "workstation" mode with event list
+- [ ] Curating images from content_items
+- [ ] Full-page screenshot stitching (scroll capture)
+- [ ] Bulk operations on multiple events
+- [ ] Keyboard shortcuts
+- [ ] Dark mode support

@@ -3,7 +3,6 @@
 > **Before you begin:**
 > 1. Read `/Users/danielforstner/Herd/eventatlas/.claude/CLAUDE.md` for project rules
 > 2. Read `PROGRESS.md` for phase status
-> 3. Read `docs/PLAN-2026-01-23-event-editing.md` for current implementation plan
 
 ---
 
@@ -35,48 +34,78 @@
 
 ---
 
-## Current Phase: 6 - Event Editing
+## Last Session: 2026-01-25
 
-**Goal:** Allow editing event attributes (tags, type, distances, screenshots) directly from the plugin.
+### What Was Implemented
 
-**Plan:** `docs/PLAN-2026-01-23-event-editing.md`
+**Link Discovery Comparison Feature** - When visiting a link discovery source page, the extension now:
+1. Shows all discovered child links from our system
+2. Scans the current page for links
+3. Compares page links vs known links to find NEW links
+4. Allows adding new links directly to the pipeline
 
-### Summary of Work
+### Files Changed
 
-**Database (EventAtlas):**
-- Add `type`, `source`, `source_url` columns to `media_assets`
-- Create `event_media` junction table
+**Backend (eventatlas):**
+- `LookupController.php` - Enhanced to return `child_links`, `url_pattern`, `processor_configuration_id`, `has_api_endpoint`
+- `AddDiscoveredLinksController.php` - New endpoint for creating child OrganizerLinks
+- `routes/api.php` - Added `POST /api/extension/add-discovered-links`
+- Tests added with full coverage
 
-**API (EventAtlas):**
-- `GET /api/extension/tags`
-- `GET /api/extension/event-types`
-- `GET /api/extension/distances`
-- `PATCH /api/extension/events/{id}`
-- `POST /api/extension/events/{id}/screenshot`
-
-**Plugin:**
-- Event editor panel UI
-- Tags selector, distances picker
-- Screenshot upload
+**Extension (eventatlas-capture):**
+- `manifest.json` - Added `scripting` permission
+- `sidepanel/sidepanel.html` - Link Discovery view UI + CSS
+- `sidepanel/sidepanel.js` - Scan page, compare links, add to pipeline functionality
 
 ---
 
-## Key Architecture Decisions
+## Current State
 
-### Event-Driven
-Focus on Events, not organizers. The plugin asks: "Has this URL been processed into an Event?"
+The extension is feature-complete for the core workflows:
 
-### URL Lookup
-Searches `event_links` → `content_items` → `organizer_links` in priority order.
+1. **Content Capture** - Capture pages for manual content import
+2. **URL Status** - See if current page is a known event, content item, or discovery source
+3. **Event Editing** - Edit tags, distances, event type, notes, screenshots for known events
+4. **Link Discovery** - Scan pages for new links and add to pipeline
 
-### Media Storage
-- `media_assets` table stores files with intrinsic properties (`type`, `source`)
-- `event_media` is a junction table linking events to media
-- Use `PersistentFileStorage` service for file uploads
+---
 
-### Type vs Category
-- `type` = System enum (screenshot, background, icon, event_image)
-- `category` = User freeform for organization ("light backgrounds", etc.)
+## Architecture Summary
+
+### URL Lookup Priority
+1. `event_links.url` → Returns event (shows Event Editor)
+2. `content_items.source_url` → Returns content item status
+3. `organizer_links.url` → Returns link discovery (shows Link Discovery view)
+4. No match → "New Page" status
+
+### Authentication
+Laravel Sanctum personal access tokens. Admin generates token in EventAtlas → pastes in extension settings.
+
+---
+
+## File Locations
+
+### EventAtlas (Laravel)
+```
+app/Http/Controllers/Api/Extension/   # API controllers
+  - LookupController.php              # URL status lookup
+  - AddDiscoveredLinksController.php  # Add links from extension
+  - TagsController.php                # Tags CRUD
+  - EventTypesController.php          # Event types list
+  - DistancesController.php           # Predefined distances
+  - UpdateEventController.php         # Event editing
+  - ScreenshotController.php          # Screenshot upload/delete
+  - EventListController.php           # Event list for curation
+  - SyncController.php                # Bulk sync
+```
+
+### Extension
+```
+background.js           # Service worker, badge, screenshot capture
+sidepanel/sidepanel.js  # Main UI logic (~1600 lines)
+sidepanel/sidepanel.html # UI markup + styles
+content/content.js      # Page extraction
+```
 
 ---
 
@@ -87,25 +116,4 @@ Searches `event_links` → `content_items` → `organizer_links` in priority ord
 | `staging` | staging | https://eventatlasco-staging.up.railway.app |
 | `main` | production | https://ongoingevents-production.up.railway.app |
 
----
-
-## File Locations
-
-### EventAtlas (Laravel)
-```
-app/Http/Controllers/Api/Extension/   # API controllers
-app/Http/Resources/Extension/         # API resources
-app/Services/Extension/               # UrlNormalizer
-app/Models/MediaAsset.php             # Media storage
-app/Models/EventMedia.php             # Junction (to create)
-app/Enums/MediaAssetType.php          # Enum (to create)
-app/Enums/MediaAssetSource.php        # Enum (to create)
-```
-
-### Extension
-```
-background.js           # Service worker, badge
-sidepanel/sidepanel.js  # Main UI logic
-sidepanel/sidepanel.html # UI markup
-content/content.js      # Page extraction
-```
+Auto-deploys on push.
