@@ -218,7 +218,7 @@ const editorBadge = document.getElementById('editorBadge');
 const editorViewLink = document.getElementById('editorViewLink');
 const editorLoading = document.getElementById('editorLoading');
 const editorContent = document.getElementById('editorContent');
-const editorEventType = document.getElementById('editorEventType');
+const editorEventTypes = document.getElementById('editorEventTypes');
 const editorTags = document.getElementById('editorTags');
 const editorDistances = document.getElementById('editorDistances');
 const customDistanceInput = document.getElementById('customDistanceInput');
@@ -235,6 +235,7 @@ let currentMatchedEvent = null;
 let availableTags = [];
 let availableEventTypes = [];
 let availableDistances = [];
+let selectedEventTypeId = null;
 let selectedTagIds = new Set();
 let selectedDistanceValues = [];
 let eventEditorExpanded = true; // Default expanded when event is matched
@@ -3118,17 +3119,38 @@ async function loadEditorOptions() {
   // Merge global distances with user custom presets
   availableDistances = mergeDistancesWithPresets(distances);
 
-  // Populate event types dropdown
-  editorEventType.innerHTML = '<option value="">-- Select type --</option>';
-  eventTypes.forEach((type) => {
-    const option = document.createElement('option');
-    option.value = type.id;
-    option.textContent = type.name;
-    editorEventType.appendChild(option);
-  });
+  // Render event types pills
+  renderEventTypePills();
 
   // Populate distances buttons (including user presets)
   renderDistanceButtonsFromOptions();
+}
+
+/**
+ * Render event type pills
+ */
+function renderEventTypePills() {
+  editorEventTypes.innerHTML = '';
+  availableEventTypes.forEach((type) => {
+    const btn = document.createElement('button');
+    btn.className = 'event-type-btn' + (selectedEventTypeId === type.id ? ' selected' : '');
+    btn.dataset.typeId = type.id;
+    btn.textContent = type.name;
+    btn.addEventListener('click', () => toggleEventType(type.id));
+    editorEventTypes.appendChild(btn);
+  });
+}
+
+/**
+ * Toggle event type selection (single select)
+ */
+function toggleEventType(typeId) {
+  selectedEventTypeId = selectedEventTypeId === typeId ? null : typeId;
+  renderEventTypePills();
+  // Clear validation error when user selects a type
+  if (selectedEventTypeId) {
+    document.getElementById('eventTypeError').classList.remove('visible');
+  }
 }
 
 /**
@@ -3251,7 +3273,8 @@ async function showEventEditor(event) {
   }
 
   // Set current values from event
-  editorEventType.value = event.event_type_id || '';
+  selectedEventTypeId = event.event_type_id || null;
+  renderEventTypePills();
 
   // Set selected tags
   selectedTagIds = new Set((event.tags || []).map(t => t.id));
@@ -4192,7 +4215,7 @@ function clearUploadQueue() {
  * Clear validation errors from event editor fields
  */
 function clearValidationErrors() {
-  editorEventType.classList.remove('field-error');
+  editorEventTypes.classList.remove('field-error');
   document.getElementById('eventTypeError').classList.remove('visible');
 }
 
@@ -4218,9 +4241,8 @@ async function saveEventChanges() {
   clearValidationErrors();
 
   // Validate required fields
-  const eventTypeId = editorEventType.value;
-  if (!eventTypeId) {
-    showFieldError(editorEventType, 'eventTypeError');
+  if (!selectedEventTypeId) {
+    showFieldError(editorEventTypes, 'eventTypeError');
     showToast('Please select an event type', 'error');
     return;
   }
@@ -4244,7 +4266,7 @@ async function saveEventChanges() {
     }
 
     const payload = {
-      event_type_id: editorEventType.value ? parseInt(editorEventType.value, 10) : null,
+      event_type_id: selectedEventTypeId,
       tag_ids: Array.from(selectedTagIds),
       distances_km: selectedDistanceValues,
       notes: editorNotes.value || null,
@@ -4414,12 +4436,6 @@ if (captureEventHtmlBtn) {
 } else {
   console.error('[EventAtlas] captureEventHtmlBtn not found in DOM');
 }
-
-// Clear validation error when event type is selected
-editorEventType.addEventListener('change', () => {
-  editorEventType.classList.remove('field-error');
-  document.getElementById('eventTypeError').classList.remove('visible');
-});
 
 // Handle Enter key on custom distance input
 customDistanceInput.addEventListener('keydown', (e) => {

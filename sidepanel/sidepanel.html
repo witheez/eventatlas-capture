@@ -2127,6 +2127,34 @@
       margin-top: 4px;
     }
 
+    /* Event types picker */
+    .event-types-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .event-type-btn {
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      background: #ffffff;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .event-type-btn:hover {
+      border-color: #22c55e;
+    }
+
+    .event-type-btn.selected {
+      background: #22c55e;
+      border-color: #22c55e;
+      color: #ffffff;
+    }
+
     /* Distances picker */
     .distances-container {
       display: flex;
@@ -3127,9 +3155,7 @@
           <!-- Event Type -->
           <div class="editor-section">
             <label class="editor-label">Event Type <span style="color: #ef4444;">*</span></label>
-            <select class="editor-select" id="editorEventType">
-              <option value="">-- Select type --</option>
-            </select>
+            <div class="event-types-container" id="editorEventTypes"></div>
             <div id="eventTypeError" class="error-message-inline">Event type is required</div>
           </div>
 
