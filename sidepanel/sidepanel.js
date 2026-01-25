@@ -31,6 +31,37 @@ import {
   clearUploadQueue,
 } from './upload-queue.js';
 import { initEventEditor } from './event-editor.js';
+import { initCapture } from './capture.js';
+// Note: bundles.js, page-detail.js, event-list.js modules exist but their functions
+// are currently implemented locally in sidepanel.js for direct access to module state.
+// TODO: Refactor to fully use module pattern with proper state management.
+
+// Import pure functions from event-list.js (no state dependencies)
+import {
+  formatMissingBadges,
+  formatEventType,
+  formatTags,
+  formatDistances,
+  formatEventDate,
+  getFirstOfMonth,
+  getMonthLabel,
+  buildStartsFromOptions,
+  getStartsFromDate,
+} from './event-list.js';
+
+// Import URL status module functions
+import {
+  initUrlStatus,
+  updateSettings as updateUrlStatusSettings,
+  checkIfEventAtlasUrl,
+  buildAdminEditUrl,
+  updateTabInfo,
+  updateUrlStatus,
+  hideLinkDiscoveryView,
+  scanPageForLinks,
+  addNewLinksToPipeline,
+  toggleSelectAllNewLinks,
+} from './url-status.js';
 
 // Storage keys
 const STORAGE_KEY = 'eventatlas_capture_data';
@@ -313,6 +344,9 @@ let pendingUrlChange = null; // Stores the URL we want to navigate to after dial
 // Event Editor module instance (initialized in init())
 let eventEditorModule = null;
 
+// Capture module instance (initialized in init())
+let captureModule = null;
+
 // DOM Elements - Screenshot Upload Timing Setting
 const screenshotUploadTimingSetting = document.getElementById('screenshotUploadTiming');
 
@@ -323,63 +357,7 @@ const unsavedSaveBtn = document.getElementById('unsavedSaveBtn');
 const unsavedDiscardBtn = document.getElementById('unsavedDiscardBtn');
 const unsavedCancelBtn = document.getElementById('unsavedCancelBtn');
 
-/**
- * Known EventAtlas domains (production, staging, local)
- * These are checked in addition to settings.apiUrl
- */
-const KNOWN_EVENTATLAS_DOMAINS = [
-  'https://www.eventatlas.co',
-  'https://eventatlas.co',
-  'https://eventatlasco-staging.up.railway.app',
-  'https://ongoingevents-production.up.railway.app',
-  'http://eventatlas.test',
-  'https://eventatlas.test',
-];
-
-/**
- * Check if a URL is an EventAtlas URL (our own admin or frontend)
- * Returns { type: 'admin' | 'frontend', eventId: number } or null
- */
-function checkIfEventAtlasUrl(url) {
-  // Build list of domains to check: known domains + settings.apiUrl
-  const domainsToCheck = [...KNOWN_EVENTATLAS_DOMAINS];
-  if (settings.apiUrl) {
-    domainsToCheck.push(settings.apiUrl.replace(/\/$/, ''));
-  }
-
-  for (const domain of domainsToCheck) {
-    try {
-      const escapedDomain = escapeRegex(domain.replace(/\/$/, ''));
-
-      // Check admin event URLs: /admin/v2/events/{id} or /admin/v2/events/{id}/edit
-      const adminMatch = url.match(new RegExp(`${escapedDomain}/admin/v2/events/(\\d+)`));
-      if (adminMatch) {
-        return { type: 'admin', eventId: parseInt(adminMatch[1], 10) };
-      }
-
-      // Check frontend event URLs: /events/{id-or-slug}
-      const frontendMatch = url.match(new RegExp(`${escapedDomain}/events/([^/]+)`));
-      if (frontendMatch) {
-        return { type: 'frontend', eventIdOrSlug: frontendMatch[1] };
-      }
-    } catch (e) {
-      console.warn('[EventAtlas] Error checking domain:', domain, e);
-    }
-  }
-
-  return null;
-}
-
-/**
- * Build admin edit URL for an event
- * Prefers eventatlas.co for production, falls back to apiUrl
- */
-function buildAdminEditUrl(eventId) {
-  if (!eventId) return null;
-  // Prefer the production domain for admin links
-  const baseUrl = 'https://www.eventatlas.co';
-  return `${baseUrl}/admin/v2/events/${eventId}/edit`;
-}
+// checkIfEventAtlasUrl and buildAdminEditUrl are imported from url-status.js
 
 /**
  * Show toast notification
@@ -424,503 +402,8 @@ function hideDuplicateDialog() {
   pendingCapture = null;
 }
 
-/**
- * Update UI with current tab info
- */
-async function updateTabInfo() {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab) {
-      const newUrl = tab.url || '';
-
-      // Check for unsaved changes when URL changes
-      if (lastKnownUrl && lastKnownUrl !== newUrl && hasUnsavedChanges()) {
-        pendingUrlChange = newUrl;
-        showUnsavedDialog();
-        // Don't update UI yet, wait for user decision
-        return;
-      }
-
-      // Update last known URL
-      lastKnownUrl = newUrl;
-
-      pageTitleEl.textContent = tab.title || 'Unknown';
-      pageUrlEl.textContent = newUrl;
-    }
-  } catch (err) {
-    pageTitleEl.textContent = 'Unable to get tab info';
-    console.error('Error getting tab info:', err);
-  }
-
-  // Update URL status after tab info is updated
-  await updateUrlStatus();
-}
-
-/**
- * Render URL status details with optional admin link
- */
-function renderUrlStatusDetails(eventName, eventId) {
-  urlStatusDetails.innerHTML = '';
-
-  if (eventId) {
-    // Create row with event name and admin link
-    const row = document.createElement('div');
-    row.className = 'url-status-row';
-
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'url-status-event-name';
-    nameSpan.textContent = eventName || '';
-    nameSpan.title = eventName || '';
-
-    const adminUrl = buildAdminEditUrl(eventId);
-    if (adminUrl) {
-      const link = document.createElement('a');
-      link.className = 'admin-link';
-      link.href = adminUrl;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.innerHTML = 'View \u2192';
-      link.title = 'Open in Admin';
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        window.open(adminUrl, '_blank');
-      });
-
-      row.appendChild(nameSpan);
-      row.appendChild(link);
-    } else {
-      row.appendChild(nameSpan);
-    }
-
-    urlStatusDetails.appendChild(row);
-  } else {
-    urlStatusDetails.textContent = eventName || '';
-  }
-}
-
-/**
- * Update the combined page info badge and status section visibility
- */
-function updatePageInfoBadge(type, text, icon = null) {
-  statusSection.style.display = 'flex';
-  pageInfoBadge.className = 'page-info-badge ' + type;
-  pageInfoBadgeText.textContent = text;
-  if (icon) {
-    pageInfoBadgeIcon.textContent = icon;
-  }
-}
-
-/**
- * Show or hide the View link under the status badge
- */
-function updateStatusViewLink(eventId) {
-  if (eventId) {
-    const adminUrl = buildAdminEditUrl(eventId);
-    if (adminUrl) {
-      statusViewLink.href = adminUrl;
-      statusViewLink.style.display = 'inline';
-      statusViewLink.onclick = (e) => {
-        e.preventDefault();
-        window.open(adminUrl, '_blank');
-      };
-    } else {
-      statusViewLink.style.display = 'none';
-    }
-  } else {
-    statusViewLink.style.display = 'none';
-  }
-}
-
-/**
- * Show or hide the bundle UI based on whether an event is matched
- * Note: status section visibility is controlled by updatePageInfoBadge/hidePageInfoStatus,
- * not here, to avoid conflicts with "no API configured" state
- */
-function updateBundleUIVisibility(isEventMatched) {
-  if (isEventMatched) {
-    // Hide page info, status section, and bundle UI when event is matched
-    // (page info is now shown in the event editor accordion header)
-    if (pageInfoSection) pageInfoSection.style.display = 'none';
-    if (statusSection) statusSection.style.display = 'none';
-    if (captureButtons) captureButtons.style.display = 'none';
-    if (bundleSection) bundleSection.style.display = 'none';
-  } else {
-    // Show page info and bundle UI when no event matched
-    // Note: status section visibility is NOT changed here - it's controlled by
-    // updatePageInfoBadge (shows) and hidePageInfoStatus (hides)
-    if (pageInfoSection) pageInfoSection.style.display = 'block';
-    if (captureButtons) captureButtons.style.display = 'block';
-    if (bundleSection) bundleSection.style.display = 'block';
-    // Also update the capture buttons visibility based on settings
-    updateCaptureButtonsVisibility();
-  }
-}
-
-/**
- * Update the page info details section (legacy - kept for backward compatibility)
- * The actual display is now handled by updateStatusViewLink and the status section
- */
-function updatePageInfoDetails(eventName, eventId) {
-  // Legacy section is now always hidden - display handled by status section
-  pageInfoDetails.style.display = 'none';
-
-  // Store values for legacy compatibility
-  if (eventName) {
-    pageInfoEventName.textContent = eventName || '';
-    pageInfoEventName.title = eventName || '';
-  }
-}
-
-/**
- * Hide page info badge and details
- */
-function hidePageInfoStatus() {
-  statusSection.style.display = 'none';
-  statusViewLink.style.display = 'none';
-  pageInfoDetails.style.display = 'none';
-  // Show bundle UI when status is hidden
-  updateBundleUIVisibility(false);
-  // Also hide link discovery view
-  hideLinkDiscoveryView();
-}
-
-/**
- * Update URL status indicator based on current tab URL
- */
-async function updateUrlStatus() {
-  // Skip if no API configured
-  if (!settings.apiUrl || !settings.apiToken) {
-    hidePageInfoStatus();
-    hideEventEditor();
-    return;
-  }
-
-  // Get current tab URL
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
-    hidePageInfoStatus();
-    hideEventEditor();
-    return;
-  }
-
-  // Check if this is an EventAtlas URL first
-  const eventAtlasMatch = checkIfEventAtlasUrl(tab.url);
-  if (eventAtlasMatch) {
-    // Show loading state
-    updatePageInfoBadge('loading', 'Checking...', '\u22EF');
-    updateStatusViewLink(null);
-    updateBundleUIVisibility(false);
-
-    // For EventAtlas URLs, we can fetch event details directly
-    // Still use lookup API which will match, but we know it's our own page
-    try {
-      const result = await lookupUrl(tab.url, settings);
-      if (result && result.match_type === 'event' && result.event) {
-        updatePageInfoBadge('event', 'EventAtlas Event', '\u2713');
-        updateStatusViewLink(result.event.id);
-        updateBundleUIVisibility(true);
-        showEventEditor(result.event);
-        hideLinkDiscoveryView();
-      } else {
-        // EventAtlas URL but no match found (maybe event deleted)
-        updatePageInfoBadge('no-match', 'EventAtlas Page', '\u25CB');
-        updateStatusViewLink(null);
-        updateBundleUIVisibility(false);
-        hideEventEditor();
-        hideLinkDiscoveryView();
-      }
-    } catch (error) {
-      console.error('[EventAtlas] Status update error:', error);
-      hidePageInfoStatus();
-      hideEventEditor();
-      hideLinkDiscoveryView();
-    }
-    return;
-  }
-
-  // Show loading state for external URLs
-  updatePageInfoBadge('loading', 'Checking...', '\u22EF');
-  updateStatusViewLink(null);
-  updateBundleUIVisibility(false);
-
-  try {
-    const result = await lookupUrl(tab.url, settings);
-
-    if (!result || result.match_type === 'no_match') {
-      updatePageInfoBadge('no-match', 'New Page', '\u25CB');
-      updateStatusViewLink(null);
-      updateBundleUIVisibility(false);
-      hideEventEditor();
-      hideLinkDiscoveryView();
-    } else if (result.match_type === 'event') {
-      updatePageInfoBadge('event', 'Known Event', '\u2713');
-      updateStatusViewLink(result.event?.id);
-      updateBundleUIVisibility(true);
-      // Show event editor
-      showEventEditor(result.event);
-      hideLinkDiscoveryView();
-    } else if (result.match_type === 'link_discovery') {
-      updatePageInfoBadge('link-discovery', 'Discovery', '\u2295');
-      updateStatusViewLink(null);
-      updateBundleUIVisibility(false);
-      hideEventEditor();
-      // Show the link discovery view with enhanced data
-      showLinkDiscoveryView(result.link_discovery);
-    } else if (result.match_type === 'content_item') {
-      updatePageInfoBadge('content-item', 'Scraped', '\u25D0');
-      updateStatusViewLink(null);
-      updateBundleUIVisibility(false);
-      hideEventEditor();
-      hideLinkDiscoveryView();
-    }
-  } catch (error) {
-    console.error('[EventAtlas] Status update error:', error);
-    hidePageInfoStatus();
-    hideEventEditor();
-    hideLinkDiscoveryView();
-  }
-}
-
-/**
- * Show the link discovery view with data from lookup response
- */
-function showLinkDiscoveryView(linkDiscoveryData) {
-  currentLinkDiscovery = linkDiscoveryData;
-
-  // Update header info
-  discoverySourceName.textContent = linkDiscoveryData.organizer_name || 'Unknown Source';
-
-  // Show/hide API badge
-  discoveryApiBadge.style.display = linkDiscoveryData.has_api_endpoint ? 'inline-block' : 'none';
-
-  // Show last scraped date
-  if (linkDiscoveryData.last_scraped_at) {
-    const date = new Date(linkDiscoveryData.last_scraped_at);
-    discoveryLastScraped.textContent = `Last scraped: ${date.toLocaleDateString()}`;
-  } else {
-    discoveryLastScraped.textContent = 'Never scraped';
-  }
-
-  // Reset state
-  extractedPageLinks = [];
-  newDiscoveredLinks = [];
-  selectedNewLinks = new Set();
-  linkComparisonResults.style.display = 'none';
-
-  // Show the view
-  linkDiscoveryView.style.display = 'block';
-}
-
-/**
- * Hide the link discovery view
- */
-function hideLinkDiscoveryView() {
-  if (linkDiscoveryView) {
-    linkDiscoveryView.style.display = 'none';
-  }
-  currentLinkDiscovery = null;
-}
-
-/**
- * Scan the current page for links using chrome.scripting
- */
-async function scanPageForLinks() {
-  if (!currentLinkDiscovery) return;
-
-  const btn = scanPageLinksBtn;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="scan-btn-icon">\u23F3</span> Scanning...';
-
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    // Execute script in page context to extract links
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: extractLinksFromPage,
-      args: [currentLinkDiscovery.url_pattern],
-    });
-
-    extractedPageLinks = results[0]?.result || [];
-
-    // Compare with known links
-    compareLinksAndRender();
-
-    btn.innerHTML = '<span class="scan-btn-icon">\uD83D\uDD04</span> Rescan Page';
-  } catch (error) {
-    console.error('[EventAtlas] Error scanning page:', error);
-    showToast('Failed to scan page for links', 'error');
-    btn.innerHTML = '<span class="scan-btn-icon">\uD83D\uDD0D</span> Scan Page for Links';
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-/**
- * Function injected into page to extract links
- * @param {string|null} urlPattern - Regex pattern to filter links
- */
-function extractLinksFromPage(urlPattern) {
-  const allLinks = document.querySelectorAll('a[href]');
-  const uniqueUrls = new Set();
-
-  allLinks.forEach((a) => {
-    const href = a.href;
-    if (href && href.startsWith('http')) {
-      // Normalize URL - remove trailing slashes and fragments
-      try {
-        const url = new URL(href);
-        let normalized = url.origin + url.pathname.replace(/\/$/, '');
-
-        if (urlPattern) {
-          try {
-            // URL pattern uses ~ as delimiter in PHP, we just use the pattern content
-            const regex = new RegExp(urlPattern, 'i');
-            if (regex.test(href)) {
-              uniqueUrls.add(normalized);
-            }
-          } catch (e) {
-            // Invalid regex, add anyway
-            uniqueUrls.add(normalized);
-          }
-        } else {
-          uniqueUrls.add(normalized);
-        }
-      } catch (e) {
-        // Invalid URL, skip
-      }
-    }
-  });
-
-  return Array.from(uniqueUrls);
-}
-
-/**
- * Compare extracted links with known child links and render results
- */
-function compareLinksAndRender() {
-  if (!currentLinkDiscovery) return;
-
-  // Build set of known normalized URLs
-  const knownUrls = new Set();
-  const childLinks = currentLinkDiscovery.child_links || [];
-
-  childLinks.forEach((link) => {
-    const normalized = normalizeUrl(link.url);
-    knownUrls.add(normalized);
-  });
-
-  // Find new links (on page but not in known)
-  newDiscoveredLinks = extractedPageLinks.filter((url) => {
-    const normalized = normalizeUrl(url);
-    return !knownUrls.has(normalized);
-  });
-
-  // Start with all new links selected
-  selectedNewLinks = new Set(newDiscoveredLinks);
-
-  // Render results
-  renderLinkComparison(childLinks);
-}
-
-/**
- * Render the link comparison results
- */
-function renderLinkComparison(childLinks) {
-  // Update counts
-  newLinksCount.textContent = newDiscoveredLinks.length;
-  knownLinksCount.textContent = childLinks.length;
-
-  // Render new links with checkboxes
-  newLinksList.innerHTML = newDiscoveredLinks
-    .map(
-      (url) => `
-    <div class="link-item new-link">
-      <label>
-        <input type="checkbox" class="new-link-checkbox" data-url="${escapeHtml(url)}" checked>
-        <span>${escapeHtml(url)}</span>
-      </label>
-    </div>
-  `
-    )
-    .join('');
-
-  // Setup checkbox listeners
-  newLinksList.querySelectorAll('.new-link-checkbox').forEach((cb) => {
-    cb.addEventListener('change', (e) => {
-      if (e.target.checked) {
-        selectedNewLinks.add(e.target.dataset.url);
-      } else {
-        selectedNewLinks.delete(e.target.dataset.url);
-      }
-      updateSelectedLinksCount();
-    });
-  });
-
-  // Setup select all
-  selectAllNewLinks.checked = newDiscoveredLinks.length > 0;
-  selectAllNewLinks.disabled = newDiscoveredLinks.length === 0;
-
-  // Render known links (read-only)
-  knownLinksList.innerHTML = childLinks.map((link) => `<div class="link-item known-link">${escapeHtml(link.url)}</div>`).join('');
-
-  updateSelectedLinksCount();
-  linkComparisonResults.style.display = 'block';
-}
-
-/**
- * Update the selected links count and button visibility
- */
-function updateSelectedLinksCount() {
-  const count = selectedNewLinks.size;
-  selectedLinksCountEl.textContent = count;
-  addNewLinksBtn.style.display = count > 0 ? 'block' : 'none';
-  addNewLinksBtn.disabled = count === 0;
-}
-
-/**
- * Add selected new links to the pipeline via API
- */
-async function addNewLinksToPipeline() {
-  const linksToAdd = Array.from(selectedNewLinks);
-  if (linksToAdd.length === 0 || !currentLinkDiscovery) return;
-
-  const btn = addNewLinksBtn;
-  btn.disabled = true;
-  btn.textContent = 'Adding...';
-
-  try {
-    const response = await fetch(`${settings.apiUrl}/api/extension/add-discovered-links`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${settings.apiToken}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({
-        organizer_link_id: currentLinkDiscovery.organizer_link_id,
-        urls: linksToAdd,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-    showToast(`Added ${data.created_count} new links to pipeline`);
-
-    // Refresh the lookup to get updated child links
-    await updateUrlStatus();
-  } catch (error) {
-    console.error('[EventAtlas] Error adding links:', error);
-    showToast('Error adding links: ' + error.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = `Add <span id="selectedLinksCount">${selectedNewLinks.size}</span> Selected Links to Pipeline`;
-  }
-}
+// URL status functions are imported from url-status.js:
+// updateTabInfo, updateUrlStatus, hideLinkDiscoveryView, scanPageForLinks, addNewLinksToPipeline, etc.
 
 /**
  * Get bundle by ID
@@ -2258,16 +1741,7 @@ if (scanPageLinksBtn) {
 
 if (selectAllNewLinks) {
   selectAllNewLinks.addEventListener('change', (e) => {
-    if (e.target.checked) {
-      selectedNewLinks = new Set(newDiscoveredLinks);
-    } else {
-      selectedNewLinks = new Set();
-    }
-    // Update all checkboxes
-    newLinksList.querySelectorAll('.new-link-checkbox').forEach((cb) => {
-      cb.checked = e.target.checked;
-    });
-    updateSelectedLinksCount();
+    toggleSelectAllNewLinks(e.target.checked);
   });
 }
 
@@ -2462,113 +1936,9 @@ function renderEventList() {
   });
 }
 
-/**
- * Format missing badges HTML
- */
-function formatMissingBadges(missing) {
-  return missing.map((m) => `<span class="missing-badge">${escapeHtml(m)}</span>`).join('');
-}
-
-/**
- * Format event type badge
- */
-function formatEventType(eventType) {
-  if (!eventType) return '';
-  return `<span class="meta-badge meta-type">${escapeHtml(eventType)}</span>`;
-}
-
-/**
- * Format tags with "1 tag + x more" pattern
- */
-function formatTags(tags) {
-  if (!tags || tags.length === 0) return '';
-  const firstTag = tags[0];
-  const moreCount = tags.length - 1;
-  let html = `<span class="meta-badge meta-tag">${escapeHtml(firstTag)}</span>`;
-  if (moreCount > 0) {
-    html += `<span class="meta-more">+${moreCount}</span>`;
-  }
-  return html;
-}
-
-/**
- * Format distances array
- */
-function formatDistances(distances) {
-  if (!distances || distances.length === 0) return '';
-  const formatted = distances.map((d) => `${d}km`).join(', ');
-  return `<span class="meta-badge meta-distance">${escapeHtml(formatted)}</span>`;
-}
-
-/**
- * Format a date as "Jan 1, 2026"
- */
-function formatEventDate(dateString) {
-  if (!dateString) return '';
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Get the first day of a month offset from now
- * @param {number} monthsOffset - 0 for this month, 1 for next month, etc.
- * @returns {string} ISO date string (YYYY-MM-DD)
- */
-function getFirstOfMonth(monthsOffset) {
-  const date = new Date();
-  date.setMonth(date.getMonth() + monthsOffset);
-  date.setDate(1);
-  return date.toISOString().split('T')[0];
-}
-
-/**
- * Get a month label like "Jan 2026"
- */
-function getMonthLabel(monthsOffset) {
-  const date = new Date();
-  date.setMonth(date.getMonth() + monthsOffset);
-  return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-}
-
-/**
- * Build the "Starts from" filter options with dynamic month labels
- */
-function buildStartsFromOptions() {
-  return [
-    { value: '', label: 'All dates' },
-    { value: 'this_month', label: `${getMonthLabel(0)}+` },
-    { value: 'next_month', label: `${getMonthLabel(1)}+` },
-    { value: '2_months', label: `${getMonthLabel(2)}+` },
-    { value: '3_months', label: `${getMonthLabel(3)}+` },
-    { value: '6_months', label: `${getMonthLabel(6)}+` },
-    { value: 'custom', label: 'Custom...' },
-  ];
-}
-
-/**
- * Convert filter preset to actual ISO date
- */
-function getStartsFromDate(presetOrDate) {
-  if (!presetOrDate) return null;
-
-  switch (presetOrDate) {
-    case 'this_month': return getFirstOfMonth(0);
-    case 'next_month': return getFirstOfMonth(1);
-    case '2_months': return getFirstOfMonth(2);
-    case '3_months': return getFirstOfMonth(3);
-    case '6_months': return getFirstOfMonth(6);
-    default:
-      // Assume it's an ISO date string
-      if (/^\d{4}-\d{2}-\d{2}$/.test(presetOrDate)) {
-        return presetOrDate;
-      }
-      return null;
-  }
-}
+// Pure format functions imported from event-list.js:
+// formatMissingBadges, formatEventType, formatTags, formatDistances,
+// formatEventDate, getFirstOfMonth, getMonthLabel, buildStartsFromOptions, getStartsFromDate
 
 /**
  * Update the "Starts from" dropdown options
@@ -3195,6 +2565,47 @@ async function init() {
     },
     renderSavedScreenshots: renderSavedScreenshots,
     showToast: showToast,
+  });
+
+  // Initialize URL status module
+  initUrlStatus({
+    settings,
+    elements: {
+      pageTitleEl,
+      pageUrlEl,
+      urlStatusDetails,
+      statusSection,
+      pageInfoBadge,
+      pageInfoBadgeIcon,
+      pageInfoBadgeText,
+      statusViewLink,
+      pageInfoSection,
+      pageInfoDetails,
+      pageInfoEventName,
+      captureButtons,
+      bundleSection,
+      linkDiscoveryView,
+      discoverySourceName,
+      discoveryApiBadge,
+      discoveryLastScraped,
+      scanPageLinksBtn,
+      linkComparisonResults,
+      newLinksCount,
+      knownLinksCount,
+      newLinksList,
+      knownLinksList,
+      selectAllNewLinks,
+      addNewLinksBtn,
+      selectedLinksCountEl,
+    },
+    callbacks: {
+      showToast,
+      showEventEditor,
+      hideEventEditor,
+      updateCaptureButtonsVisibility,
+      hasUnsavedChanges,
+      showUnsavedDialog,
+    },
   });
 
   await updateTabInfo();
