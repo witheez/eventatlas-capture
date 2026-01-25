@@ -6,8 +6,35 @@
  * Uses accordion-style bundles with drag-and-drop between bundles.
  */
 
+import { formatBytes, getDomain, normalizeUrl, escapeRegex, escapeHtml, generateId } from './utils.js';
+import { syncWithApi, lookupUrl, testApiConnection, fetchTags, fetchEventTypes, fetchDistances } from './api.js';
+import {
+  saveToStorage as saveToStorageRaw,
+  loadFromStorage as loadFromStorageRaw,
+  clearAllStorage as clearAllStorageRaw,
+  saveFilterState as saveFilterStateRaw,
+  loadFilterState as loadFilterStateRaw,
+} from './storage.js';
+import {
+  initUploadQueue,
+  getUploadQueue,
+  generateThumbnail,
+  addToUploadQueue,
+  uploadQueueItem,
+  updateQueueItemProgress,
+  markQueueItemComplete,
+  markQueueItemFailed,
+  retryQueueItem,
+  removeFromUploadQueue,
+  renderUploadQueue,
+  updateQueueItemUI,
+  clearUploadQueue,
+} from './upload-queue.js';
+import { initEventEditor } from './event-editor.js';
+
 // Storage keys
 const STORAGE_KEY = 'eventatlas_capture_data';
+const OLD_STORAGE_KEY = 'eventatlas_capture_bundle'; // Legacy key for migration
 const SYNC_DATA_KEY = 'eventatlas_sync_data';
 const MAX_BUNDLE_PAGES = 20;
 const MAX_BUNDLES = 50;
@@ -63,15 +90,49 @@ let eventListCache = [];
 let eventListLastFetched = null;
 let eventListRefreshTimer = null;
 let activeTab = 'current'; // 'current' or 'event-list'
-let filterState = {
+const DEFAULT_FILTER_STATE = {
   missingTags: false,
   missingDistances: false,
   mode: 'any',
   startsFrom: null, // 'this_month', 'next_month', '2_months', '3_months', '6_months', or ISO date string
 };
+let filterState = { ...DEFAULT_FILTER_STATE };
 
 // Storage key for filter state persistence
 const FILTER_STATE_KEY = 'eventatlas_filter_state';
+
+// Storage wrapper functions that bind to module state
+async function saveToStorage() {
+  await saveToStorageRaw(STORAGE_KEY, { bundles, settings });
+}
+
+async function loadFromStorage() {
+  const result = await loadFromStorageRaw(
+    STORAGE_KEY,
+    OLD_STORAGE_KEY,
+    DEFAULT_SETTINGS,
+    { migrateOldDistancePresets, getDomain, generateId }
+  );
+  bundles = result.bundles;
+  settings = result.settings;
+  if (result.migrated) {
+    await saveToStorage();
+  }
+  return result.bundles.length > 0 || result.migrated;
+}
+
+async function clearAllStorage() {
+  bundles = [];
+  await clearAllStorageRaw(STORAGE_KEY, settings);
+}
+
+async function saveFilterState() {
+  await saveFilterStateRaw(FILTER_STATE_KEY, filterState);
+}
+
+async function loadFilterState() {
+  filterState = await loadFilterStateRaw(FILTER_STATE_KEY, DEFAULT_FILTER_STATE);
+}
 
 // Link Discovery state
 let currentLinkDiscovery = null;
@@ -249,17 +310,11 @@ let pendingScreenshots = []; // Array of { id, data, filename, capturedAt }
 let lastKnownUrl = null; // Track URL changes for unsaved warning
 let pendingUrlChange = null; // Stores the URL we want to navigate to after dialog
 
-// Upload queue state (persists in memory, survives navigation within session)
-// { id, eventId, eventName, imageData, thumbnail, status: 'uploading'|'complete'|'failed', progress: 0-100, error?: string }
-let uploadQueue = [];
+// Event Editor module instance (initialized in init())
+let eventEditorModule = null;
 
 // DOM Elements - Screenshot Upload Timing Setting
 const screenshotUploadTimingSetting = document.getElementById('screenshotUploadTiming');
-
-// DOM Elements - Upload Queue
-const uploadQueueEl = document.getElementById('uploadQueue');
-const uploadQueueCountEl = document.getElementById('uploadQueueCount');
-const uploadQueueItemsEl = document.getElementById('uploadQueueItems');
 
 // DOM Elements - Unsaved Changes Dialog
 const unsavedDialog = document.getElementById('unsavedDialog');
@@ -267,49 +322,6 @@ const unsavedDialogText = document.getElementById('unsavedDialogText');
 const unsavedSaveBtn = document.getElementById('unsavedSaveBtn');
 const unsavedDiscardBtn = document.getElementById('unsavedDiscardBtn');
 const unsavedCancelBtn = document.getElementById('unsavedCancelBtn');
-
-/**
- * Format bytes to human-readable string
- */
-function formatBytes(bytes) {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-/**
- * Extract domain from URL
- */
-function getDomain(url) {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-}
-
-/**
- * Normalize URL for comparison (strips protocol, www, query params, fragment, trailing slash)
- */
-function normalizeUrl(url) {
-  try {
-    const parsed = new URL(url);
-    let normalized = parsed.hostname.replace(/^www\./, '');
-    normalized += parsed.pathname.replace(/\/$/, '');
-    return normalized.toLowerCase();
-  } catch (e) {
-    return url.toLowerCase();
-  }
-}
-
-/**
- * Escape special regex characters in a string
- */
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 /**
  * Known EventAtlas domains (production, staging, local)
@@ -442,206 +454,6 @@ async function updateTabInfo() {
 
   // Update URL status after tab info is updated
   await updateUrlStatus();
-}
-
-/**
- * Generate unique ID
- */
-function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
-}
-
-/**
- * Save data to local storage
- */
-async function saveToStorage() {
-  try {
-    await chrome.storage.local.set({
-      [STORAGE_KEY]: { bundles, settings },
-    });
-  } catch (err) {
-    console.error('Error saving data:', err);
-  }
-}
-
-/**
- * Load data from local storage
- */
-async function loadFromStorage() {
-  const OLD_STORAGE_KEY = 'eventatlas_capture_bundle';
-
-  try {
-    // First check new storage format
-    const result = await chrome.storage.local.get([STORAGE_KEY, OLD_STORAGE_KEY]);
-
-    if (result[STORAGE_KEY]) {
-      const data = result[STORAGE_KEY];
-      bundles = data.bundles || [];
-      settings = { ...DEFAULT_SETTINGS, ...data.settings };
-
-      // Migrate old customDistancePresets string format to new toggle-based format
-      if (settings.customDistancePresets && typeof settings.customDistancePresets === 'string') {
-        settings.distancePresets = migrateOldDistancePresets(settings.customDistancePresets);
-        delete settings.customDistancePresets;
-        await saveToStorage(); // Persist the migration
-      }
-
-      return true;
-    }
-
-    // Check for old storage format and migrate
-    if (result[OLD_STORAGE_KEY] && Array.isArray(result[OLD_STORAGE_KEY])) {
-      const oldData = result[OLD_STORAGE_KEY];
-      if (oldData.length > 0) {
-        // Group by domain for migration
-        const domainMap = new Map();
-        oldData.forEach((capture) => {
-          const domain = getDomain(capture.url || capture.editedUrl || 'unknown');
-          if (!domainMap.has(domain)) {
-            domainMap.set(domain, []);
-          }
-          domainMap.get(domain).push(capture);
-        });
-
-        // Create bundles from domain groups
-        bundles = [];
-        domainMap.forEach((pages, domain) => {
-          bundles.push({
-            id: generateId(),
-            name: domain,
-            pages: pages,
-            createdAt: new Date().toISOString(),
-            expanded: false,
-          });
-        });
-      } else {
-        bundles = [];
-      }
-      settings = { ...DEFAULT_SETTINGS };
-
-      // Save in new format and remove old key
-      await saveToStorage();
-      await chrome.storage.local.remove(OLD_STORAGE_KEY);
-      return true;
-    }
-  } catch (err) {
-    console.error('Error loading data:', err);
-  }
-  bundles = [];
-  settings = { ...DEFAULT_SETTINGS };
-  return false;
-}
-
-/**
- * Sync data from EventAtlas API (bulk sync)
- * Fetches events and organizer links for local URL matching
- */
-async function syncWithApi() {
-  // Skip if no API configured
-  if (!settings.apiUrl || !settings.apiToken) return null;
-  if (settings.syncMode === 'realtime_only') return null;
-
-  try {
-    const response = await fetch(`${settings.apiUrl}/api/extension/sync`, {
-      headers: {
-        'Authorization': `Bearer ${settings.apiToken}`,
-        'Accept': 'application/json',
-      },
-    });
-
-    if (!response.ok) throw new Error(`Sync failed: ${response.status}`);
-
-    const data = await response.json();
-
-    // Store sync data
-    await chrome.storage.local.set({
-      [SYNC_DATA_KEY]: {
-        events: data.events || [],
-        organizerLinks: data.organizer_links || [],
-        syncedAt: data.synced_at,
-      },
-    });
-
-    return data;
-  } catch (error) {
-    console.error('[EventAtlas] Sync error:', error);
-    return null;
-  }
-}
-
-/**
- * Get local match for a URL from synced data
- * Returns match info if URL exists in events or organizer links
- */
-async function getLocalMatch(url) {
-  try {
-    const result = await chrome.storage.local.get([SYNC_DATA_KEY]);
-    const syncData = result[SYNC_DATA_KEY];
-
-    if (!syncData) return null;
-
-    const normalizedUrl = normalizeUrl(url);
-
-    // Check events - API returns source_url_normalized
-    const events = syncData.events || [];
-    for (const event of events) {
-      if (event.source_url_normalized === normalizedUrl) {
-        return {
-          match_type: 'event',
-          event: event,
-        };
-      }
-    }
-
-    // Check organizer links - API returns url_normalized
-    const organizerLinks = syncData.organizerLinks || [];
-    for (const link of organizerLinks) {
-      if (link.url_normalized === normalizedUrl) {
-        return {
-          match_type: 'link_discovery',
-          organizer_link: link,
-        };
-      }
-    }
-
-    return null;
-  } catch (error) {
-    console.error('[EventAtlas] Local match error:', error);
-    return null;
-  }
-}
-
-/**
- * Lookup URL via API (real-time) or local sync data
- * Combines local and remote lookups based on sync mode
- */
-async function lookupUrl(url) {
-  // First check local sync data
-  const local = await getLocalMatch(url);
-
-  // If sync mode is bulk only, return local match
-  if (settings.syncMode === 'bulk_only') return local;
-
-  // Otherwise, do real-time lookup
-  if (!settings.apiUrl || !settings.apiToken) return local;
-
-  try {
-    const response = await fetch(
-      `${settings.apiUrl}/api/extension/lookup?url=${encodeURIComponent(url)}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${settings.apiToken}`,
-          'Accept': 'application/json',
-        },
-      }
-    );
-
-    if (!response.ok) return local;
-    return await response.json();
-  } catch (error) {
-    console.error('[EventAtlas] Lookup error:', error);
-    return local;
-  }
 }
 
 /**
@@ -802,7 +614,7 @@ async function updateUrlStatus() {
     // For EventAtlas URLs, we can fetch event details directly
     // Still use lookup API which will match, but we know it's our own page
     try {
-      const result = await lookupUrl(tab.url);
+      const result = await lookupUrl(tab.url, settings);
       if (result && result.match_type === 'event' && result.event) {
         updatePageInfoBadge('event', 'EventAtlas Event', '\u2713');
         updateStatusViewLink(result.event.id);
@@ -832,7 +644,7 @@ async function updateUrlStatus() {
   updateBundleUIVisibility(false);
 
   try {
-    const result = await lookupUrl(tab.url);
+    const result = await lookupUrl(tab.url, settings);
 
     if (!result || result.match_type === 'no_match') {
       updatePageInfoBadge('no-match', 'New Page', '\u25CB');
@@ -1107,27 +919,6 @@ async function addNewLinksToPipeline() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = `Add <span id="selectedLinksCount">${selectedNewLinks.size}</span> Selected Links to Pipeline`;
-  }
-}
-
-/**
- * Escape HTML special characters
- */
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-/**
- * Clear all bundles from storage
- */
-async function clearAllStorage() {
-  try {
-    bundles = [];
-    await saveToStorage();
-  } catch (err) {
-    console.error('Error clearing storage:', err);
   }
 }
 
@@ -2280,7 +2071,7 @@ async function refreshPageData() {
     availableDistances = [];
 
     // Sync with API (refresh local cache)
-    const syncResult = await syncWithApi();
+    const syncResult = await syncWithApi(settings);
     if (syncResult) {
       console.log('[EventAtlas] Refresh - Sync completed:', {
         events: syncResult.events?.length || 0,
@@ -2400,7 +2191,7 @@ saveSettingsBtn.addEventListener('click', async () => {
 
   // Trigger sync if API is configured
   if (settings.apiUrl && settings.apiToken) {
-    syncWithApi().then((result) => {
+    syncWithApi(settings).then((result) => {
       if (result) {
         updateUrlStatus();
       }
@@ -2408,74 +2199,21 @@ saveSettingsBtn.addEventListener('click', async () => {
   }
 });
 
-testConnectionBtn.addEventListener('click', testConnection);
-
-/**
- * Test API connection (reads directly from form fields, not saved settings)
- */
-async function testConnection() {
+testConnectionBtn.addEventListener('click', async () => {
   const apiUrl = apiUrlSetting.value.trim();
   const apiToken = apiTokenSetting.value.trim();
-
-  // Validate form fields
-  if (!apiUrl) {
-    connectionStatus.textContent = 'Enter API URL';
-    connectionStatus.className = 'connection-status error';
-    return;
-  }
-
-  if (!apiToken) {
-    connectionStatus.textContent = 'Enter API Token';
-    connectionStatus.className = 'connection-status error';
-    return;
-  }
 
   // Show loading state
   testConnectionBtn.disabled = true;
   connectionStatus.textContent = 'Testing...';
   connectionStatus.className = 'connection-status loading';
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+  const result = await testApiConnection(apiUrl, apiToken);
 
-    const response = await fetch(`${apiUrl}/api/extension/sync`, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${apiToken}`,
-      },
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (response.ok) {
-      connectionStatus.textContent = 'Connected!';
-      connectionStatus.className = 'connection-status success';
-    } else if (response.status === 401) {
-      connectionStatus.textContent = 'Invalid token';
-      connectionStatus.className = 'connection-status error';
-    } else if (response.status === 404) {
-      connectionStatus.textContent = 'Endpoint not found';
-      connectionStatus.className = 'connection-status error';
-    } else {
-      connectionStatus.textContent = `Error ${response.status}`;
-      connectionStatus.className = 'connection-status error';
-    }
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      connectionStatus.textContent = 'Timeout';
-      connectionStatus.className = 'connection-status error';
-    } else {
-      connectionStatus.textContent = 'Connection failed';
-      connectionStatus.className = 'connection-status error';
-    }
-    console.error('Connection test error:', error);
-  } finally {
-    testConnectionBtn.disabled = false;
-  }
-}
+  connectionStatus.textContent = result.message;
+  connectionStatus.className = result.success ? 'connection-status success' : 'connection-status error';
+  testConnectionBtn.disabled = false;
+});
 
 // Event Listeners - Bundles view
 // Single button (when screenshot default is ON) - always captures with screenshot
@@ -2613,16 +2351,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, _tab) => {
 // ========================================
 // Tab Navigation & Event List Functions
 // ========================================
-
-/**
- * Escape HTML special characters
- */
-function escapeHtml(str) {
-  if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
 
 /**
  * Switch between tabs (Current/Event List)
@@ -2843,31 +2571,6 @@ function getStartsFromDate(presetOrDate) {
 }
 
 /**
- * Save filter state to storage
- */
-async function saveFilterState() {
-  try {
-    await chrome.storage.local.set({ [FILTER_STATE_KEY]: filterState });
-  } catch (err) {
-    console.error('Error saving filter state:', err);
-  }
-}
-
-/**
- * Load filter state from storage
- */
-async function loadFilterState() {
-  try {
-    const result = await chrome.storage.local.get([FILTER_STATE_KEY]);
-    if (result[FILTER_STATE_KEY]) {
-      filterState = { ...filterState, ...result[FILTER_STATE_KEY] };
-    }
-  } catch (err) {
-    console.error('Error loading filter state:', err);
-  }
-}
-
-/**
  * Update the "Starts from" dropdown options
  */
 function updateStartsFromDropdown() {
@@ -3059,74 +2762,8 @@ if (eventListRefreshIntervalSetting) {
 // Event Editor Functions
 // ========================================
 
-/**
- * Fetch available tags from API
- */
-async function fetchTags() {
-  if (!settings.apiUrl || !settings.apiToken) return [];
-
-  try {
-    const response = await fetch(`${settings.apiUrl}/api/extension/tags`, {
-      headers: {
-        'Authorization': `Bearer ${settings.apiToken}`,
-        'Accept': 'application/json',
-      },
-    });
-
-    if (!response.ok) throw new Error(`Failed to fetch tags: ${response.status}`);
-    const data = await response.json();
-    return data.tags || [];
-  } catch (error) {
-    console.error('[EventAtlas] Error fetching tags:', error);
-    return [];
-  }
-}
-
-/**
- * Fetch available event types from API
- */
-async function fetchEventTypes() {
-  if (!settings.apiUrl || !settings.apiToken) return [];
-
-  try {
-    const response = await fetch(`${settings.apiUrl}/api/extension/event-types`, {
-      headers: {
-        'Authorization': `Bearer ${settings.apiToken}`,
-        'Accept': 'application/json',
-      },
-    });
-
-    if (!response.ok) throw new Error(`Failed to fetch event types: ${response.status}`);
-    const data = await response.json();
-    return data.event_types || [];
-  } catch (error) {
-    console.error('[EventAtlas] Error fetching event types:', error);
-    return [];
-  }
-}
-
-/**
- * Fetch available distances from API
- */
-async function fetchDistances() {
-  if (!settings.apiUrl || !settings.apiToken) return [];
-
-  try {
-    const response = await fetch(`${settings.apiUrl}/api/extension/distances`, {
-      headers: {
-        'Authorization': `Bearer ${settings.apiToken}`,
-        'Accept': 'application/json',
-      },
-    });
-
-    if (!response.ok) throw new Error(`Failed to fetch distances: ${response.status}`);
-    const data = await response.json();
-    return data.distances || [];
-  } catch (error) {
-    console.error('[EventAtlas] Error fetching distances:', error);
-    return [];
-  }
-}
+// Note: fetchTags, fetchEventTypes, fetchDistances moved to api.js
+// They are imported and called with settings parameter
 
 /**
  * Migrate old customDistancePresets string format to new toggle-based format
@@ -3274,1222 +2911,39 @@ function mergeDistancesWithPresets(globalDistances) {
   return distances;
 }
 
-/**
- * Load editor options (tags, event types, distances)
- */
-async function loadEditorOptions() {
-  // Fetch all in parallel
-  const [tags, eventTypes, distances] = await Promise.all([
-    fetchTags(),
-    fetchEventTypes(),
-    fetchDistances(),
-  ]);
+// Event editor functions are now in event-editor.js module
+// Wrapper functions that delegate to the eventEditor instance
 
-  availableTags = tags;
-  availableEventTypes = eventTypes;
-
-  // Merge global distances with user custom presets
-  availableDistances = mergeDistancesWithPresets(distances);
-
-  // Render event types pills
-  renderEventTypePills();
-
-  // Populate distances buttons (including user presets)
-  renderDistanceButtonsFromOptions();
+function showEventEditor(event) {
+  return eventEditorModule.showEventEditor(event);
 }
 
-/**
- * Render event type pills
- */
-function renderEventTypePills() {
-  editorEventTypes.innerHTML = '';
-  availableEventTypes.forEach((type) => {
-    const btn = document.createElement('button');
-    btn.className = 'event-type-btn' + (selectedEventTypeId === type.id ? ' selected' : '');
-    btn.dataset.typeId = type.id;
-    btn.textContent = type.name;
-    btn.addEventListener('click', () => toggleEventType(type.id));
-    editorEventTypes.appendChild(btn);
-  });
-}
-
-/**
- * Toggle event type selection (single select)
- */
-function toggleEventType(typeId) {
-  selectedEventTypeId = selectedEventTypeId === typeId ? null : typeId;
-  renderEventTypePills();
-  // Clear validation error when user selects a type
-  if (selectedEventTypeId) {
-    document.getElementById('eventTypeError').classList.remove('visible');
-  }
-}
-
-/**
- * Render distance buttons from availableDistances
- */
-function renderDistanceButtonsFromOptions() {
-  editorDistances.innerHTML = '';
-  availableDistances.forEach((dist) => {
-    const btn = document.createElement('button');
-    btn.className = 'distance-btn' + (dist.isUserPreset ? ' user-preset' : '');
-    btn.dataset.value = dist.value;
-    btn.textContent = dist.label;
-    btn.title = dist.isUserPreset ? 'Custom preset' : '';
-    btn.addEventListener('click', () => toggleDistance(dist.value));
-    editorDistances.appendChild(btn);
-  });
-}
-
-/**
- * Toggle event editor accordion
- */
-function toggleEventEditorAccordion() {
-  eventEditorExpanded = !eventEditorExpanded;
-  updateEventEditorAccordionState();
-  saveEventEditorAccordionState();
-}
-
-/**
- * Update the visual state of the event editor accordion
- */
-function updateEventEditorAccordionState() {
-  if (eventEditorExpanded) {
-    eventEditorChevron.classList.remove('collapsed');
-    eventEditorContent.classList.remove('collapsed');
-  } else {
-    eventEditorChevron.classList.add('collapsed');
-    eventEditorContent.classList.add('collapsed');
-  }
-}
-
-/**
- * Save event editor accordion state to storage
- */
-async function saveEventEditorAccordionState() {
-  try {
-    await chrome.storage.local.set({ eventEditorAccordionExpanded: eventEditorExpanded });
-  } catch (err) {
-    console.error('Error saving accordion state:', err);
-  }
-}
-
-/**
- * Load event editor accordion state from storage
- */
-async function loadEventEditorAccordionState() {
-  try {
-    const result = await chrome.storage.local.get(['eventEditorAccordionExpanded']);
-    // If not set, default to expanded (true)
-    eventEditorExpanded = result.eventEditorAccordionExpanded !== false;
-  } catch (err) {
-    console.error('Error loading accordion state:', err);
-    eventEditorExpanded = true;
-  }
-}
-
-/**
- * Show event editor with matched event data
- */
-async function showEventEditor(event) {
-  currentMatchedEvent = event;
-
-  // Load accordion state from storage
-  await loadEventEditorAccordionState();
-
-  // Show editor and loading state
-  eventEditor.classList.add('visible');
-  editorLoading.style.display = 'flex';
-  editorContent.style.display = 'none';
-
-  // Set event name (legacy element, hidden)
-  editorEventName.textContent = event.title || event.name || 'Untitled Event';
-
-  // Populate accordion header with current page info
-  // Use the current page title (from the tab), not the event name from API
-  if (editorPageTitle) {
-    editorPageTitle.textContent = pageTitleEl.textContent || 'Unknown Page';
-  }
-  if (editorPageUrl) {
-    editorPageUrl.textContent = pageUrlEl.textContent || '';
-  }
-
-  // Set up the badge
-  if (editorBadge) {
-    editorBadge.innerHTML = '&#10003; Known Event';
-  }
-
-  // Set up the View link
-  if (editorViewLink) {
-    const adminUrl = buildAdminEditUrl(event.id);
-    if (adminUrl) {
-      editorViewLink.href = adminUrl;
-      editorViewLink.style.display = 'inline';
-      editorViewLink.onclick = (e) => {
-        e.stopPropagation(); // Prevent accordion toggle
-        window.open(adminUrl, '_blank');
-        e.preventDefault();
-      };
-    } else {
-      editorViewLink.style.display = 'none';
-    }
-  }
-
-  // Always expand when showing for a new event match
-  eventEditorExpanded = true;
-  updateEventEditorAccordionState();
-
-  // Load options if not already loaded
-  if (availableEventTypes.length === 0 || availableTags.length === 0) {
-    await loadEditorOptions();
-  }
-
-  // Set current values from event
-  selectedEventTypeId = event.event_type_id || null;
-  renderEventTypePills();
-
-  // Set selected tags
-  selectedTagIds = new Set((event.tags || []).map(t => t.id));
-  renderTagsChips();
-
-  // Set selected distances
-  selectedDistanceValues = Array.isArray(event.distances_km) ? [...event.distances_km] : [];
-  renderDistanceButtons();
-  renderSelectedDistances();
-
-  // Set notes
-  editorNotes.value = event.notes || '';
-
-  // Render saved screenshots
-  renderSavedScreenshots(event.media || []);
-
-  // Hide loading, show content
-  editorLoading.style.display = 'none';
-  editorContent.style.display = 'block';
-}
-
-/**
- * Hide event editor
- */
 function hideEventEditor() {
-  eventEditor.classList.remove('visible');
-  currentMatchedEvent = null;
-  selectedTagIds = new Set();
-  selectedDistanceValues = [];
+  return eventEditorModule.hideEventEditor();
 }
 
-/**
- * Render tag chips
- */
-function renderTagsChips() {
-  editorTags.innerHTML = '';
-
-  availableTags.forEach((tag) => {
-    const chip = document.createElement('span');
-    chip.className = 'tag-chip' + (selectedTagIds.has(tag.id) ? ' selected' : '');
-    chip.dataset.tagId = tag.id;
-
-    const checkmark = document.createElement('span');
-    checkmark.className = 'tag-chip-check';
-    checkmark.textContent = selectedTagIds.has(tag.id) ? '\u2713' : '';
-
-    chip.appendChild(checkmark);
-
-    // Tag name
-    const nameSpan = document.createElement('span');
-    nameSpan.textContent = tag.name;
-    chip.appendChild(nameSpan);
-
-    // Usage count (if available)
-    if (typeof tag.events_count === 'number') {
-      const countSpan = document.createElement('span');
-      countSpan.className = 'tag-chip-count';
-      countSpan.textContent = ` (${tag.events_count})`;
-      chip.appendChild(countSpan);
-    }
-
-    chip.addEventListener('click', () => toggleTag(tag.id));
-    editorTags.appendChild(chip);
-  });
-
-  // Render the create new tag input
-  renderCreateTagInput();
-}
-
-/**
- * Render create new tag input
- */
-function renderCreateTagInput() {
-  // Check if input container already exists
-  let inputContainer = document.getElementById('createTagContainer');
-  if (!inputContainer) {
-    inputContainer = document.createElement('div');
-    inputContainer.id = 'createTagContainer';
-    inputContainer.className = 'create-tag-container';
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.id = 'createTagInput';
-    input.className = 'create-tag-input';
-    input.placeholder = 'Create new tag...';
-
-    const errorEl = document.createElement('div');
-    errorEl.id = 'createTagError';
-    errorEl.className = 'create-tag-error';
-    errorEl.style.display = 'none';
-
-    inputContainer.appendChild(input);
-    inputContainer.appendChild(errorEl);
-
-    // Insert after the tags container
-    editorTags.parentElement.appendChild(inputContainer);
-
-    // Event listeners
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        createNewTag(input.value.trim());
-      }
-    });
-
-    input.addEventListener('blur', () => {
-      const value = input.value.trim();
-      if (value) {
-        createNewTag(value);
-      }
-    });
-
-    // Clear error on input
-    input.addEventListener('input', () => {
-      const errorEl = document.getElementById('createTagError');
-      if (errorEl) {
-        errorEl.style.display = 'none';
-      }
-    });
-  }
-}
-
-/**
- * Create a new tag via API
- */
-async function createNewTag(name) {
-  if (!name) return;
-
-  if (!settings.apiUrl || !settings.apiToken) {
-    showToast('API not configured', 'error');
-    return;
-  }
-
-  const input = document.getElementById('createTagInput');
-  const errorEl = document.getElementById('createTagError');
-
-  // Disable input while creating
-  if (input) {
-    input.disabled = true;
-  }
-
-  try {
-    const response = await fetch(`${settings.apiUrl}/api/extension/tags`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${settings.apiToken}`,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ name }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const message = errorData.message || errorData.errors?.name?.[0] || `Failed: ${response.status}`;
-      throw new Error(message);
-    }
-
-    const data = await response.json();
-
-    if (data.tag) {
-      // Add the new tag to available tags
-      availableTags.push(data.tag);
-
-      // Auto-select the new tag
-      selectedTagIds.add(data.tag.id);
-
-      // Clear input
-      if (input) {
-        input.value = '';
-      }
-
-      // Re-render tags
-      renderTagsChips();
-
-      showToast(`Tag "${data.tag.name}" created`, 'success');
-    }
-  } catch (error) {
-    console.error('[EventAtlas] Error creating tag:', error);
-
-    // Show error message below input
-    if (errorEl) {
-      errorEl.textContent = error.message;
-      errorEl.style.display = 'block';
-    }
-
-    showToast(error.message || 'Failed to create tag', 'error');
-  } finally {
-    if (input) {
-      input.disabled = false;
-      input.focus();
-    }
-  }
-}
-
-/**
- * Toggle tag selection
- */
-function toggleTag(tagId) {
-  if (selectedTagIds.has(tagId)) {
-    selectedTagIds.delete(tagId);
-  } else {
-    selectedTagIds.add(tagId);
-  }
-  renderTagsChips();
-}
-
-/**
- * Render distance buttons (update selected state)
- * Preserves user-preset class while toggling selected state
- */
-function renderDistanceButtons() {
-  const buttons = editorDistances.querySelectorAll('.distance-btn');
-  buttons.forEach((btn) => {
-    const value = parseInt(btn.dataset.value, 10);
-    const isUserPreset = btn.classList.contains('user-preset');
-
-    if (selectedDistanceValues.includes(value)) {
-      btn.classList.add('selected');
-    } else {
-      btn.classList.remove('selected');
-    }
-
-    // Ensure user-preset class is preserved
-    if (isUserPreset && !btn.classList.contains('user-preset')) {
-      btn.classList.add('user-preset');
-    }
-  });
-}
-
-/**
- * Toggle distance selection
- */
-function toggleDistance(value) {
-  const numValue = parseInt(value, 10);
-  const index = selectedDistanceValues.indexOf(numValue);
-
-  if (index >= 0) {
-    selectedDistanceValues.splice(index, 1);
-  } else {
-    selectedDistanceValues.push(numValue);
-  }
-
-  // Sort distances
-  selectedDistanceValues.sort((a, b) => a - b);
-
-  renderDistanceButtons();
-  renderSelectedDistances();
-}
-
-/**
- * Add custom distance
- */
-function addCustomDistance() {
-  const value = parseInt(customDistanceInput.value, 10);
-
-  if (isNaN(value) || value < 1 || value > 1000) {
-    showToast('Enter a valid distance (1-1000 km)', 'error');
-    return;
-  }
-
-  if (!selectedDistanceValues.includes(value)) {
-    selectedDistanceValues.push(value);
-    selectedDistanceValues.sort((a, b) => a - b);
-    renderDistanceButtons();
-    renderSelectedDistances();
-  }
-
-  customDistanceInput.value = '';
-}
-
-/**
- * Remove a selected distance
- */
-function removeDistance(value) {
-  const numValue = parseInt(value, 10);
-  const index = selectedDistanceValues.indexOf(numValue);
-
-  if (index >= 0) {
-    selectedDistanceValues.splice(index, 1);
-    renderDistanceButtons();
-    renderSelectedDistances();
-  }
-}
-
-/**
- * Render selected distances chips
- */
-function renderSelectedDistances() {
-  selectedDistancesEl.innerHTML = '';
-
-  if (selectedDistanceValues.length === 0) {
-    return;
-  }
-
-  selectedDistanceValues.forEach((value) => {
-    const chip = document.createElement('span');
-    chip.className = 'selected-distance-chip';
-
-    // Find label from available distances or use value + K
-    const distObj = availableDistances.find(d => d.value === value);
-    const label = distObj ? distObj.label : `${value}K`;
-
-    chip.innerHTML = `${label} <span class="selected-distance-remove" data-value="${value}">&times;</span>`;
-
-    chip.querySelector('.selected-distance-remove').addEventListener('click', (e) => {
-      e.stopPropagation();
-      removeDistance(value);
-    });
-
-    selectedDistancesEl.appendChild(chip);
-  });
-}
-
-/**
- * Render saved screenshots with delete buttons
- */
-function renderSavedScreenshots(media) {
-  savedScreenshotsEl.innerHTML = '';
-
-  // Filter for screenshots
-  const screenshots = media.filter(m => m.type === 'screenshot' || m.type === 'Screenshot');
-
-  // Render saved screenshots
-  if (screenshots.length === 0 && pendingScreenshots.length === 0) {
-    savedScreenshotsEl.innerHTML = '<div class="no-screenshots">No screenshots yet</div>';
-    return;
-  }
-
-  screenshots.forEach((item) => {
-    const div = document.createElement('div');
-    div.className = 'saved-screenshot-item';
-
-    const img = document.createElement('img');
-    img.src = item.thumbnail_url || item.file_url;
-    img.alt = item.name || 'Screenshot';
-    img.onerror = () => {
-      div.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:10px;">Failed</div>';
-    };
-
-    div.appendChild(img);
-
-    // Delete button
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'screenshot-delete-btn';
-    deleteBtn.innerHTML = '&times;';
-    deleteBtn.title = 'Delete screenshot';
-    deleteBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      deleteScreenshot(item.id);
-    });
-    div.appendChild(deleteBtn);
-
-    // Click to open in lightbox modal
-    div.addEventListener('click', () => {
-      openScreenshotModal(item.file_url);
-    });
-
-    savedScreenshotsEl.appendChild(div);
-  });
-
-  // Render uploading screenshots (from upload queue)
-  const uploadingForEvent = uploadQueue.filter(q =>
-    q.eventId === currentMatchedEvent?.id &&
-    q.status === 'uploading'
-  );
-
-  uploadingForEvent.forEach((item) => {
-    const div = document.createElement('div');
-    div.className = 'saved-screenshot-item uploading';
-    div.dataset.queueId = item.id;
-
-    const img = document.createElement('img');
-    img.src = item.thumbnail;
-    img.alt = 'Uploading...';
-    div.appendChild(img);
-
-    // Overlay with progress
-    const overlay = document.createElement('div');
-    overlay.className = 'upload-overlay';
-    overlay.innerHTML = `<span>${item.progress}%</span>`;
-    div.appendChild(overlay);
-
-    savedScreenshotsEl.appendChild(div);
-  });
-
-  // Render pending screenshots section if any
-  if (pendingScreenshots.length > 0) {
-    renderPendingScreenshots();
-  }
-}
-
-/**
- * Render pending screenshots (for on_save mode)
- */
-function renderPendingScreenshots() {
-  // Create pending section if needed
-  let pendingSection = savedScreenshotsEl.querySelector('.pending-screenshots-section');
-  if (!pendingSection) {
-    pendingSection = document.createElement('div');
-    pendingSection.className = 'pending-screenshots-section';
-    savedScreenshotsEl.appendChild(pendingSection);
-  }
-
-  pendingSection.innerHTML = '';
-
-  // Header
-  const header = document.createElement('div');
-  header.className = 'pending-screenshots-header';
-  header.innerHTML = `
-    <span class="pending-screenshots-title">Pending Upload</span>
-    <span class="pending-screenshots-count">${pendingScreenshots.length}</span>
-  `;
-  pendingSection.appendChild(header);
-
-  // Grid
-  const grid = document.createElement('div');
-  grid.className = 'pending-screenshots-grid';
-
-  pendingScreenshots.forEach((item) => {
-    const div = document.createElement('div');
-    div.className = 'pending-screenshot-item';
-
-    const img = document.createElement('img');
-    img.src = item.data;
-    img.alt = 'Pending screenshot';
-
-    div.appendChild(img);
-
-    // Pending badge
-    const badge = document.createElement('span');
-    badge.className = 'pending-badge';
-    badge.textContent = 'Pending';
-    div.appendChild(badge);
-
-    // Remove button
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'pending-screenshot-remove';
-    removeBtn.innerHTML = '&times;';
-    removeBtn.title = 'Remove pending screenshot';
-    removeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      removePendingScreenshot(item.id);
-    });
-    div.appendChild(removeBtn);
-
-    grid.appendChild(div);
-  });
-
-  pendingSection.appendChild(grid);
-}
-
-/**
- * Remove a pending screenshot
- */
-function removePendingScreenshot(id) {
-  pendingScreenshots = pendingScreenshots.filter(s => s.id !== id);
-  // Re-render screenshots
-  if (currentMatchedEvent) {
-    renderSavedScreenshots(currentMatchedEvent.media || []);
-  }
-}
-
-/**
- * Delete a saved screenshot via API
- */
-async function deleteScreenshot(mediaId) {
-  if (!currentMatchedEvent || !settings.apiUrl || !settings.apiToken) {
-    showToast('Cannot delete - no event selected or API not configured', 'error');
-    return;
-  }
-
-  // Confirm deletion
-  if (!confirm('Are you sure you want to delete this screenshot?')) {
-    return;
-  }
-
-  try {
-    const response = await fetch(
-      `${settings.apiUrl}/api/extension/events/${currentMatchedEvent.id}/screenshot/${mediaId}`,
-      {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${settings.apiToken}`,
-          'Accept': 'application/json',
-        },
-      }
-    );
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `Delete failed: ${response.status}`);
-    }
-
-    // Remove from local state
-    if (currentMatchedEvent.media) {
-      currentMatchedEvent.media = currentMatchedEvent.media.filter(m => m.id !== mediaId);
-    }
-
-    // Re-render
-    renderSavedScreenshots(currentMatchedEvent.media || []);
-    showToast('Screenshot deleted', 'success');
-
-  } catch (error) {
-    console.error('[EventAtlas] Error deleting screenshot:', error);
-    showToast(error.message || 'Failed to delete screenshot', 'error');
-  }
-}
-
-/**
- * Check if there are unsaved changes (pending screenshots)
- */
 function hasUnsavedChanges() {
-  return pendingScreenshots.length > 0;
+  return eventEditorModule.hasUnsavedChanges();
 }
 
-/**
- * Show unsaved changes dialog
- */
 function showUnsavedDialog(message) {
-  if (message) {
-    unsavedDialogText.textContent = message;
-  } else {
-    unsavedDialogText.textContent = 'You have pending screenshots that haven\'t been uploaded. What would you like to do?';
-  }
-  unsavedDialog.classList.add('visible');
+  return eventEditorModule.showUnsavedDialog(message);
 }
 
-/**
- * Hide unsaved changes dialog
- */
 function hideUnsavedDialog() {
-  unsavedDialog.classList.remove('visible');
-  pendingUrlChange = null;
+  return eventEditorModule.hideUnsavedDialog();
 }
 
-/**
- * Upload all pending screenshots
- */
-async function uploadPendingScreenshots() {
-  if (!currentMatchedEvent || pendingScreenshots.length === 0) {
-    return true;
-  }
-
-  editorSaveBtn.disabled = true;
-  editorSaveBtn.textContent = 'Uploading screenshots...';
-
-  try {
-    for (const pending of pendingScreenshots) {
-      const response = await fetch(
-        `${settings.apiUrl}/api/extension/events/${currentMatchedEvent.id}/screenshot`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${settings.apiToken}`,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            image: pending.data,
-            filename: pending.filename,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Upload failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      // Add to current event's media
-      if (data.media_asset) {
-        if (!currentMatchedEvent.media) {
-          currentMatchedEvent.media = [];
-        }
-        currentMatchedEvent.media.push(data.media_asset);
-      }
-    }
-
-    // Clear pending screenshots
-    pendingScreenshots = [];
-
-    // Re-render
-    renderSavedScreenshots(currentMatchedEvent.media || []);
-
-    editorSaveBtn.textContent = 'Save Changes';
-    editorSaveBtn.disabled = false;
-
-    return true;
-  } catch (error) {
-    console.error('[EventAtlas] Error uploading pending screenshots:', error);
-    showToast(error.message || 'Failed to upload screenshots', 'error');
-
-    editorSaveBtn.textContent = 'Save Changes';
-    editorSaveBtn.disabled = false;
-
-    return false;
-  }
+function saveEventChanges() {
+  return eventEditorModule.saveEventChanges();
 }
 
-/**
- * Discard all pending screenshots
- */
 function discardPendingScreenshots() {
-  pendingScreenshots = [];
-  if (currentMatchedEvent) {
-    renderSavedScreenshots(currentMatchedEvent.media || []);
-  }
+  return eventEditorModule.discardPendingScreenshots();
 }
 
-// ============================================================
-// Upload Queue Functions
-// ============================================================
-
-/**
- * Generate a small thumbnail from base64 image data
- * Returns a scaled-down version for the queue display
- */
-function generateThumbnail(imageData, maxSize = 96) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const scale = Math.min(maxSize / img.width, maxSize / img.height);
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/jpeg', 0.7));
-    };
-    img.onerror = () => {
-      resolve(imageData); // Fallback to original if thumbnail fails
-    };
-    img.src = imageData;
-  });
-}
-
-/**
- * Add item to upload queue and start upload
- */
-async function addToUploadQueue(eventId, eventName, imageData, filename) {
-  const id = generateId();
-  const thumbnail = await generateThumbnail(imageData);
-
-  const queueItem = {
-    id,
-    eventId,
-    eventName,
-    imageData,
-    thumbnail,
-    filename,
-    status: 'uploading',
-    progress: 0,
-  };
-
-  uploadQueue.push(queueItem);
-  renderUploadQueue();
-
-  // Re-render screenshots grid to show uploading item
-  if (currentMatchedEvent && currentMatchedEvent.id === eventId) {
-    renderSavedScreenshots(currentMatchedEvent.media || []);
-  }
-
-  // Start upload in background
-  uploadQueueItem(queueItem);
-
-  return queueItem;
-}
-
-/**
- * Upload a queue item with progress tracking using XMLHttpRequest
- */
-function uploadQueueItem(queueItem) {
-  const xhr = new XMLHttpRequest();
-
-  xhr.upload.addEventListener('progress', (e) => {
-    if (e.lengthComputable) {
-      const progress = Math.round((e.loaded / e.total) * 100);
-      updateQueueItemProgress(queueItem.id, progress);
-    }
-  });
-
-  xhr.addEventListener('load', () => {
-    if (xhr.status >= 200 && xhr.status < 300) {
-      try {
-        const data = JSON.parse(xhr.responseText);
-        markQueueItemComplete(queueItem.id, data.media_asset);
-      } catch {
-        markQueueItemComplete(queueItem.id, null);
-      }
-    } else {
-      let errorMessage = 'Upload failed';
-      try {
-        const errorData = JSON.parse(xhr.responseText);
-        errorMessage = errorData.message || errorMessage;
-      } catch {
-        // Ignore parse errors
-      }
-      markQueueItemFailed(queueItem.id, errorMessage);
-    }
-  });
-
-  xhr.addEventListener('error', () => {
-    markQueueItemFailed(queueItem.id, 'Network error');
-  });
-
-  xhr.addEventListener('timeout', () => {
-    markQueueItemFailed(queueItem.id, 'Upload timeout');
-  });
-
-  xhr.open('POST', `${settings.apiUrl}/api/extension/events/${queueItem.eventId}/screenshot`);
-  xhr.setRequestHeader('Authorization', `Bearer ${settings.apiToken}`);
-  xhr.setRequestHeader('Accept', 'application/json');
-  xhr.setRequestHeader('Content-Type', 'application/json');
-  xhr.timeout = 60000; // 60 second timeout
-
-  xhr.send(JSON.stringify({
-    image: queueItem.imageData,
-    filename: queueItem.filename,
-  }));
-}
-
-/**
- * Update progress for a queue item
- */
-function updateQueueItemProgress(id, progress) {
-  const item = uploadQueue.find(q => q.id === id);
-  if (item) {
-    item.progress = progress;
-    updateQueueItemUI(id);
-
-    // Also update grid overlay if visible
-    const gridItem = savedScreenshotsEl?.querySelector(`[data-queue-id="${id}"] .upload-overlay span`);
-    if (gridItem) {
-      gridItem.textContent = `${progress}%`;
-    }
-  }
-}
-
-/**
- * Mark queue item as complete
- */
-function markQueueItemComplete(id, mediaAsset) {
-  const item = uploadQueue.find(q => q.id === id);
-  if (item) {
-    item.status = 'complete';
-    item.progress = 100;
-    item.mediaAsset = mediaAsset;
-    item.completedAt = Date.now();
-    updateQueueItemUI(id);
-
-    // Add to current event's media if it's the same event
-    if (currentMatchedEvent && currentMatchedEvent.id === item.eventId && mediaAsset) {
-      if (!currentMatchedEvent.media) {
-        currentMatchedEvent.media = [];
-      }
-      currentMatchedEvent.media.push(mediaAsset);
-      renderSavedScreenshots(currentMatchedEvent.media);
-    }
-
-    // Remove from queue after animation completes (1.5s)
-    setTimeout(() => {
-      removeFromUploadQueue(id);
-    }, 1500);
-  }
-}
-
-/**
- * Mark queue item as failed
- */
-function markQueueItemFailed(id, error) {
-  const item = uploadQueue.find(q => q.id === id);
-  if (item) {
-    item.status = 'failed';
-    item.error = error;
-    updateQueueItemUI(id);
-    showToast(`Upload failed: ${error}`, 'error');
-  }
-}
-
-/**
- * Retry a failed upload
- */
-function retryQueueItem(id) {
-  const item = uploadQueue.find(q => q.id === id);
-  if (item && item.status === 'failed') {
-    item.status = 'uploading';
-    item.progress = 0;
-    item.error = null;
-    updateQueueItemUI(id);
-    uploadQueueItem(item);
-  }
-}
-
-/**
- * Remove item from upload queue
- */
-function removeFromUploadQueue(id) {
-  uploadQueue = uploadQueue.filter(q => q.id !== id);
-  renderUploadQueue();
-}
-
-/**
- * Render the entire upload queue UI
- */
-function renderUploadQueue() {
-  // Filter to only show active items (uploading or failed, or recently completed)
-  const activeItems = uploadQueue.filter(q => q.status !== 'complete' || Date.now() - q.completedAt < 1500);
-
-  // Show/hide queue based on content
-  if (activeItems.length === 0) {
-    uploadQueueEl.classList.remove('active');
-    document.body.classList.remove('has-upload-queue');
-    return;
-  }
-
-  uploadQueueEl.classList.add('active');
-  document.body.classList.add('has-upload-queue');
-
-  // Update count and title based on status
-  const uploadingCount = uploadQueue.filter(q => q.status === 'uploading').length;
-  const failedCount = uploadQueue.filter(q => q.status === 'failed').length;
-  const queueTitle = uploadQueueEl.querySelector('.upload-queue-title');
-
-  if (failedCount > 0 && uploadingCount === 0) {
-    queueTitle.textContent = failedCount === 1 ? '1 upload failed' : `${failedCount} uploads failed`;
-    uploadQueueCountEl.textContent = failedCount;
-  } else if (uploadingCount > 0) {
-    queueTitle.textContent = 'Uploading...';
-    uploadQueueCountEl.textContent = uploadingCount;
-  } else {
-    queueTitle.textContent = 'Upload complete';
-    uploadQueueCountEl.textContent = uploadQueue.length;
-  }
-
-  // Clear and rebuild items
-  uploadQueueItemsEl.innerHTML = '';
-
-  uploadQueue.forEach(item => {
-    const itemEl = document.createElement('div');
-    itemEl.className = `upload-queue-item ${item.status}`;
-    itemEl.dataset.id = item.id;
-
-    // Thumbnail image
-    const img = document.createElement('img');
-    img.src = item.thumbnail;
-    img.alt = 'Uploading screenshot';
-    itemEl.appendChild(img);
-
-    // Progress ring (shown during upload)
-    if (item.status === 'uploading') {
-      const circumference = 2 * Math.PI * 10; // r=10
-      const dashoffset = circumference - (item.progress / 100) * circumference;
-
-      itemEl.innerHTML += `
-        <svg class="progress-ring" width="24" height="24">
-          <circle class="progress-ring-bg" cx="12" cy="12" r="10"/>
-          <circle class="progress-ring-fill" cx="12" cy="12" r="10"
-            stroke-dasharray="${circumference}"
-            stroke-dashoffset="${dashoffset}"/>
-        </svg>
-      `;
-    }
-
-    // Check icon (shown on complete)
-    const checkIcon = document.createElement('span');
-    checkIcon.className = 'check-icon';
-    checkIcon.textContent = '\u2714';
-    itemEl.appendChild(checkIcon);
-
-    // Retry button (shown on failure)
-    if (item.status === 'failed') {
-      const retryBtn = document.createElement('button');
-      retryBtn.className = 'retry-btn';
-      retryBtn.innerHTML = '\u21bb';
-      retryBtn.title = `Retry: ${item.error || 'Upload failed'}`;
-      retryBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        retryQueueItem(item.id);
-      });
-      itemEl.appendChild(retryBtn);
-    }
-
-    // Event label
-    const label = document.createElement('span');
-    label.className = 'event-label';
-    label.textContent = item.eventName || 'Event';
-    label.title = item.eventName || 'Event';
-    itemEl.appendChild(label);
-
-    uploadQueueItemsEl.appendChild(itemEl);
-  });
-}
-
-/**
- * Update a single queue item's UI (for progress updates)
- */
-function updateQueueItemUI(id) {
-  const item = uploadQueue.find(q => q.id === id);
-  if (!item) return;
-
-  const itemEl = uploadQueueItemsEl.querySelector(`[data-id="${id}"]`);
-  if (!itemEl) {
-    // Item not in DOM yet, do full render
-    renderUploadQueue();
-    return;
-  }
-
-  // Update class
-  itemEl.className = `upload-queue-item ${item.status}`;
-
-  // Update progress ring
-  if (item.status === 'uploading') {
-    const progressRing = itemEl.querySelector('.progress-ring-fill');
-    if (progressRing) {
-      const circumference = 2 * Math.PI * 10;
-      const dashoffset = circumference - (item.progress / 100) * circumference;
-      progressRing.setAttribute('stroke-dashoffset', dashoffset);
-    }
-  }
-}
-
-/**
- * Clear all items from upload queue (for testing/debug)
- */
-function clearUploadQueue() {
-  uploadQueue = [];
-  renderUploadQueue();
-}
-
-// ============================================================
-// End Upload Queue Functions
-// ============================================================
-
-/**
- * Clear validation errors from event editor fields
- */
-function clearValidationErrors() {
-  editorEventTypes.classList.remove('field-error');
-  document.getElementById('eventTypeError').classList.remove('visible');
-}
-
-/**
- * Show validation error on a field
- */
-function showFieldError(field, errorId) {
-  field.classList.add('field-error');
-  document.getElementById(errorId).classList.add('visible');
-  field.focus();
-}
-
-/**
- * Save event changes to API
- */
-async function saveEventChanges() {
-  if (!currentMatchedEvent || !settings.apiUrl || !settings.apiToken) {
-    showToast('Cannot save - no event selected or API not configured', 'error');
-    return;
-  }
-
-  // Clear previous validation errors
-  clearValidationErrors();
-
-  // Validate required fields
-  if (!selectedEventTypeId) {
-    showFieldError(editorEventTypes, 'eventTypeError');
-    showToast('Please select an event type', 'error');
-    return;
-  }
-
-  editorSaveBtn.disabled = true;
-  editorSaveBtn.textContent = 'Saving...';
-  editorSaveBtn.classList.add('saving');
-
-  try {
-    // Upload pending screenshots first (if any)
-    if (pendingScreenshots.length > 0) {
-      editorSaveBtn.textContent = 'Uploading screenshots...';
-      const uploadSuccess = await uploadPendingScreenshots();
-      if (!uploadSuccess) {
-        editorSaveBtn.textContent = 'Save Changes';
-        editorSaveBtn.classList.remove('saving');
-        editorSaveBtn.disabled = false;
-        return;
-      }
-      editorSaveBtn.textContent = 'Saving...';
-    }
-
-    const payload = {
-      event_type_id: selectedEventTypeId,
-      tag_ids: Array.from(selectedTagIds),
-      distances_km: selectedDistanceValues,
-      notes: editorNotes.value || null,
-    };
-
-    const response = await fetch(`${settings.apiUrl}/api/extension/events/${currentMatchedEvent.id}`, {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bearer ${settings.apiToken}`,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `Save failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    // Update current matched event with response
-    if (data.event) {
-      currentMatchedEvent = { ...currentMatchedEvent, ...data.event };
-    }
-
-    editorSaveBtn.textContent = 'Saved!';
-    editorSaveBtn.classList.remove('saving');
-    editorSaveBtn.classList.add('saved');
-    showToast('Event updated successfully', 'success');
-
-    setTimeout(() => {
-      editorSaveBtn.textContent = 'Save Changes';
-      editorSaveBtn.classList.remove('saved');
-      editorSaveBtn.disabled = false;
-    }, 1500);
-
-  } catch (error) {
-    console.error('[EventAtlas] Error saving event:', error);
-    editorSaveBtn.textContent = 'Error';
-    editorSaveBtn.classList.remove('saving');
-    editorSaveBtn.classList.add('error');
-    showToast(error.message || 'Failed to save changes', 'error');
-
-    setTimeout(() => {
-      editorSaveBtn.textContent = 'Save Changes';
-      editorSaveBtn.classList.remove('error');
-      editorSaveBtn.disabled = false;
-    }, 2000);
-  }
+function renderSavedScreenshots(media) {
+  return eventEditorModule.renderSavedScreenshots(media);
 }
 
 /**
@@ -4582,10 +3036,8 @@ async function captureAndUploadEventScreenshot() {
   }
 }
 
-// Event Editor Event Listeners
-eventEditorAccordionHeader.addEventListener('click', toggleEventEditorAccordion);
-editorSaveBtn.addEventListener('click', saveEventChanges);
-addCustomDistanceBtn.addEventListener('click', addCustomDistance);
+// Event Editor Event Listeners are now set up in the eventEditor module via setupEventListeners()
+// Screenshot capture buttons remain here as they use functions in sidepanel.js
 
 // Capture screenshot button in accordion - add defensive check
 if (captureEventScreenshotBtn) {
@@ -4609,13 +3061,7 @@ if (captureEventHtmlBtn) {
   console.error('[EventAtlas] captureEventHtmlBtn not found in DOM');
 }
 
-// Handle Enter key on custom distance input
-customDistanceInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    addCustomDistance();
-  }
-});
+// Custom distance input keydown listener is now in the eventEditor module
 
 // Handle distance preset toggle chips in settings
 if (distancePresetToggles) {
@@ -4668,6 +3114,89 @@ async function init() {
   // Display version in header
   displayVersion();
 
+  // Initialize event editor module
+  eventEditorModule = initEventEditor({
+    elements: {
+      eventEditor: document.getElementById('eventEditor'),
+      eventEditorAccordionHeader: document.getElementById('eventEditorAccordionHeader'),
+      eventEditorChevron: document.getElementById('eventEditorChevron'),
+      eventEditorContent: document.getElementById('eventEditorContent'),
+      editorEventName: document.getElementById('editorEventName'),
+      editorPageTitle: document.getElementById('editorPageTitle'),
+      editorPageUrl: document.getElementById('editorPageUrl'),
+      editorBadge: document.getElementById('editorBadge'),
+      editorViewLink: document.getElementById('editorViewLink'),
+      editorLoading: document.getElementById('editorLoading'),
+      editorContent: document.getElementById('editorContent'),
+      editorEventTypes: document.getElementById('editorEventTypes'),
+      editorTags: document.getElementById('editorTags'),
+      editorDistances: document.getElementById('editorDistances'),
+      customDistanceInput: document.getElementById('customDistanceInput'),
+      addCustomDistanceBtn: document.getElementById('addCustomDistanceBtn'),
+      selectedDistancesEl: document.getElementById('selectedDistances'),
+      editorNotes: document.getElementById('editorNotes'),
+      editorSaveBtn: document.getElementById('editorSaveBtn'),
+      captureEventScreenshotBtn: document.getElementById('captureEventScreenshotBtn'),
+      captureEventHtmlBtn: document.getElementById('captureEventHtmlBtn'),
+      savedScreenshotsEl: document.getElementById('savedScreenshots'),
+      pageTitleEl: document.getElementById('pageTitle'),
+      pageUrlEl: document.getElementById('pageUrl'),
+      unsavedDialog: document.getElementById('unsavedDialog'),
+      unsavedDialogText: document.getElementById('unsavedDialogText'),
+      unsavedSaveBtn: document.getElementById('unsavedSaveBtn'),
+      unsavedDiscardBtn: document.getElementById('unsavedDiscardBtn'),
+      unsavedCancelBtn: document.getElementById('unsavedCancelBtn'),
+    },
+    getSettings: () => settings,
+    getState: () => ({
+      currentMatchedEvent,
+      availableTags,
+      availableEventTypes,
+      availableDistances,
+      selectedEventTypeId,
+      selectedTagIds,
+      selectedDistanceValues,
+      eventEditorExpanded,
+      pendingScreenshots,
+      pendingUrlChange,
+      uploadQueue: getUploadQueue(),
+    }),
+    setState: (updates) => {
+      if ('currentMatchedEvent' in updates) currentMatchedEvent = updates.currentMatchedEvent;
+      if ('availableTags' in updates) availableTags = updates.availableTags;
+      if ('availableEventTypes' in updates) availableEventTypes = updates.availableEventTypes;
+      if ('availableDistances' in updates) availableDistances = updates.availableDistances;
+      if ('selectedEventTypeId' in updates) selectedEventTypeId = updates.selectedEventTypeId;
+      if ('selectedTagIds' in updates) selectedTagIds = updates.selectedTagIds;
+      if ('selectedDistanceValues' in updates) selectedDistanceValues = updates.selectedDistanceValues;
+      if ('eventEditorExpanded' in updates) eventEditorExpanded = updates.eventEditorExpanded;
+      if ('pendingScreenshots' in updates) pendingScreenshots = updates.pendingScreenshots;
+      if ('pendingUrlChange' in updates) pendingUrlChange = updates.pendingUrlChange;
+    },
+    showToast,
+    buildAdminEditUrl,
+    captureScreenshot,
+    openScreenshotModal,
+    mergeDistancesWithPresets,
+  });
+  eventEditorModule.setupEventListeners();
+
+  // Initialize upload queue module
+  initUploadQueue({
+    queueEl: document.getElementById('uploadQueue'),
+    countEl: document.getElementById('uploadQueueCount'),
+    itemsEl: document.getElementById('uploadQueueItems'),
+    getSettings: () => settings,
+    getCurrentMatchedEvent: () => currentMatchedEvent,
+    setCurrentMatchedEventMedia: (media) => {
+      if (currentMatchedEvent) {
+        currentMatchedEvent.media = media;
+      }
+    },
+    renderSavedScreenshots: renderSavedScreenshots,
+    showToast: showToast,
+  });
+
   await updateTabInfo();
   await loadFromStorage();
 
@@ -4675,7 +3204,7 @@ async function init() {
   await loadFilterState();
 
   // Sync with API in background (don't block UI)
-  syncWithApi().then((result) => {
+  syncWithApi(settings).then((result) => {
     if (result) {
       console.log('[EventAtlas] Sync completed:', {
         events: result.events?.length || 0,
