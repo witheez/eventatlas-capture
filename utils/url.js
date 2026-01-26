@@ -34,24 +34,16 @@ export function fixUrl(url) {
 
 /**
  * Normalize URL for comparison (strips protocol, www, query params, fragment, trailing slash)
- * Special handling for domains with redirect issues that require www.
  * @param {string} url - URL to normalize
  * @returns {string} Normalized URL (hostname + path)
  */
 export function normalizeUrl(url) {
   try {
     const parsed = new URL(url);
-    let hostname = parsed.hostname.toLowerCase();
-
-    // Some domains require www. - add it if missing
-    if (DOMAINS_REQUIRING_WWW.includes(hostname)) {
-      hostname = 'www.' + hostname;
-    }
-
-    // Strip www. for normalization
-    let normalized = hostname.replace(/^www\./, '');
+    // Strip www. for normalization - comparison doesn't care about www
+    let normalized = parsed.hostname.toLowerCase().replace(/^www\./, '');
     normalized += parsed.pathname.replace(/\/$/, '');
-    return normalized.toLowerCase();
+    return normalized;
   } catch (e) {
     return url.toLowerCase();
   }
