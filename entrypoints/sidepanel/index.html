@@ -242,6 +242,13 @@
       <!-- Hidden: legacy event name element for compatibility -->
       <div id="editorEventName" style="display: none;"></div>
 
+      <!-- Event navigation (prev/next in filtered list) -->
+      <div id="eventNavigation" class="event-navigation" style="display: none;">
+        <button id="prevEventBtn" class="nav-btn" title="Previous event">&#8592; Prev</button>
+        <span id="eventProgress" class="event-progress">Event 1 of 10</span>
+        <button id="nextEventBtn" class="nav-btn" title="Next event">Next &#8594;</button>
+      </div>
+
       <!-- Accordion Content -->
       <div class="event-editor-content" id="eventEditorContent">
         <!-- Loading skeleton -->

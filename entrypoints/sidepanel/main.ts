@@ -367,6 +367,12 @@ const unsavedSaveBtn = document.getElementById('unsavedSaveBtn') as HTMLButtonEl
 const unsavedDiscardBtn = document.getElementById('unsavedDiscardBtn') as HTMLButtonElement;
 const unsavedCancelBtn = document.getElementById('unsavedCancelBtn') as HTMLButtonElement;
 
+// DOM Elements - Event Navigation
+const eventNavigation = document.getElementById('eventNavigation') as HTMLElement | null;
+const prevEventBtn = document.getElementById('prevEventBtn') as HTMLButtonElement | null;
+const nextEventBtn = document.getElementById('nextEventBtn') as HTMLButtonElement | null;
+const eventProgress = document.getElementById('eventProgress') as HTMLElement | null;
+
 // checkIfEventAtlasUrl and buildAdminEditUrl are imported from url-status.js
 
 /**
@@ -2086,6 +2092,9 @@ function renderEventList(): void {
     item.addEventListener('click', () => navigateToEvent(event));
     eventListContainer.appendChild(item);
   });
+
+  // Update navigation in case current event is in the new list
+  updateEventNavigation();
 }
 
 // Pure format functions imported from event-list.js:
@@ -2452,12 +2461,16 @@ function showEventEditor(event: MatchedEvent): void {
   if (eventEditorModule) {
     eventEditorModule.showEventEditor(event);
   }
+  // Update navigation when event editor is shown
+  updateEventNavigation();
 }
 
 function hideEventEditor(): void {
   if (eventEditorModule) {
     eventEditorModule.hideEventEditor();
   }
+  // Hide navigation when editor is hidden
+  if (eventNavigation) eventNavigation.style.display = 'none';
 }
 
 function hasUnsavedChanges(): boolean {
@@ -2512,6 +2525,99 @@ function renderSelectedDistances(): void {
   if (eventEditorModule) {
     eventEditorModule.renderSelectedDistances();
   }
+}
+
+/**
+ * Event Navigation Functions
+ * Allows navigating through the filtered event list without switching tabs
+ */
+
+/**
+ * Get the index of the current matched event in the event list cache
+ */
+function getCurrentEventIndex(): number {
+  const currentEvent = getCurrentMatchedEvent();
+  if (!currentEvent) return -1;
+
+  const cache = getEventListCache();
+  return cache.findIndex((e) => e.id === currentEvent.id);
+}
+
+/**
+ * Update the event navigation UI based on current position in list
+ */
+function updateEventNavigation(): void {
+  const cache = getEventListCache();
+  const currentIndex = getCurrentEventIndex();
+
+  // Hide navigation if no event list or current event not in list
+  if (cache.length === 0 || currentIndex === -1) {
+    if (eventNavigation) eventNavigation.style.display = 'none';
+    return;
+  }
+
+  // Show navigation
+  if (eventNavigation) eventNavigation.style.display = 'flex';
+
+  // Update progress text
+  if (eventProgress) {
+    eventProgress.textContent = `Event ${currentIndex + 1} of ${cache.length}`;
+  }
+
+  // Update button states
+  if (prevEventBtn) {
+    prevEventBtn.disabled = currentIndex === 0;
+  }
+  if (nextEventBtn) {
+    nextEventBtn.disabled = currentIndex === cache.length - 1;
+  }
+}
+
+/**
+ * Navigate to an event by its index in the cache
+ */
+async function navigateToEventByIndex(index: number): Promise<void> {
+  const cache = getEventListCache();
+  if (index < 0 || index >= cache.length) return;
+
+  const event = cache[index];
+  if (!event.primary_url) {
+    showToast('Event has no URL', 'error');
+    return;
+  }
+
+  // Mark as visited if has link ID
+  const settings = getSettings();
+  if (event.primary_link_id && settings.apiUrl && settings.apiToken) {
+    try {
+      await apiMarkEventVisited(settings, event.primary_link_id);
+    } catch (err) {
+      console.warn('[EventAtlas] Failed to mark visit:', err);
+    }
+  }
+
+  // Navigate to the event's URL
+  chrome.tabs.update({ url: fixUrl(event.primary_url) });
+}
+
+// Event navigation button listeners
+if (prevEventBtn) {
+  prevEventBtn.addEventListener('click', () => {
+    const currentIndex = getCurrentEventIndex();
+    if (currentIndex > 0) {
+      navigateToEventByIndex(currentIndex - 1);
+    }
+  });
+}
+
+if (nextEventBtn) {
+  nextEventBtn.addEventListener('click', () => {
+    const currentIndex = getCurrentEventIndex();
+    const cache = getEventListCache();
+    if (currentIndex < cache.length - 1) {
+      navigateToEventByIndex(currentIndex + 1);
+    }
+  });
 }
 
 /**

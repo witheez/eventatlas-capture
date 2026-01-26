@@ -3006,3 +3006,42 @@ body {
 body.has-upload-queue {
   padding-bottom: 80px;
 }
+
+/* Event Navigation (prev/next in filtered list) */
+.event-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e5e7eb;
+  gap: 8px;
+}
+
+.event-navigation .nav-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  border: 1px solid #d1d5db;
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #374151;
+  font-family: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.event-navigation .nav-btn:hover:not(:disabled) {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.event-navigation .nav-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.event-progress {
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 500;
+}
