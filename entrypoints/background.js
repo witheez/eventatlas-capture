@@ -22,11 +22,20 @@ export default defineBackground(() => {
    * Normalize URL for comparison
    * @param {string} url - URL to normalize
    * @returns {string} Normalized URL (hostname + path without trailing slash)
+   * Special case: heyjom.com requires www. prefix due to their redirect issues
    */
   function normalizeUrl(url) {
     try {
       const parsed = new URL(url);
-      let normalized = parsed.hostname.replace(/^www\./, '');
+      let hostname = parsed.hostname.toLowerCase();
+
+      // heyjom.com requires www. - add it if missing
+      if (hostname === 'heyjom.com') {
+        hostname = 'www.heyjom.com';
+      }
+
+      // Strip www. for normalization (except heyjom.com which we just fixed)
+      let normalized = hostname.replace(/^www\./, '');
       normalized += parsed.pathname.replace(/\/$/, '');
       return normalized.toLowerCase();
     } catch (e) {
