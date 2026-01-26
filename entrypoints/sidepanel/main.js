@@ -1567,11 +1567,11 @@ async function refreshPageData() {
 
     // If we have an event editor visible, reload its options
     if (currentMatchedEvent) {
-      await loadEditorOptions();
+      await eventEditorModule.loadEditorOptions();
       // Re-render editor with fresh data
-      renderTagsChips();
-      renderDistanceButtons();
-      renderSelectedDistances();
+      eventEditorModule.renderTagsChips();
+      eventEditorModule.renderDistanceButtons();
+      eventEditorModule.renderSelectedDistances();
     }
 
     showToast('Page data refreshed', 'success');
