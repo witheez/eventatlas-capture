@@ -2626,6 +2626,9 @@ async function init() {
   await updateTabInfo();
   await loadFromStorage();
 
+  // Update url-status module with loaded settings (fixes stale reference)
+  updateUrlStatusSettings(settings);
+
   // Load filter state
   await loadFilterState();
 
