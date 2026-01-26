@@ -1348,13 +1348,38 @@ body {
   flex-shrink: 0;
 }
 
+.event-list-item-url-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
 .event-list-item-url {
   font-size: 12px;
   color: #6b7280;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-bottom: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.copy-url-btn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.copy-url-btn:hover {
+  opacity: 1;
+  background: #f3f4f6;
 }
 
 .event-list-item-missing {

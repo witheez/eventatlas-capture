@@ -9,6 +9,30 @@
 const DOMAINS_REQUIRING_WWW = ['heyjom.com'];
 
 /**
+ * Fix URL for navigation/display - adds www. where required
+ * @param {string} url - URL to fix
+ * @returns {string} Fixed URL
+ */
+export function fixUrl(url) {
+  if (!url) return url;
+
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Check if this domain requires www.
+    if (DOMAINS_REQUIRING_WWW.includes(hostname)) {
+      parsed.hostname = 'www.' + hostname;
+      return parsed.toString();
+    }
+
+    return url;
+  } catch {
+    return url;
+  }
+}
+
+/**
  * Normalize URL for comparison (strips protocol, www, query params, fragment, trailing slash)
  * Special handling for domains with redirect issues that require www.
  * @param {string} url - URL to normalize

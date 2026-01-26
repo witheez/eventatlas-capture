@@ -5,7 +5,7 @@
  */
 
 // Re-export shared URL utilities
-export { normalizeUrl, getDomain } from '@/utils/url.js';
+export { normalizeUrl, getDomain, fixUrl } from '@/utils/url.js';
 
 /**
  * Format bytes to human-readable string

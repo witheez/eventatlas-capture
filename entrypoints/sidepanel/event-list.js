@@ -5,7 +5,7 @@
  * Uses a factory pattern to receive dependencies from sidepanel.js.
  */
 
-import { escapeHtml } from './utils.js';
+import { escapeHtml, fixUrl } from './utils.js';
 
 // ========================================
 // Pure Functions (no dependencies)
@@ -258,12 +258,16 @@ export function initEventList(deps) {
       const item = document.createElement('div');
       item.className = 'event-list-item';
       const startDate = event.start_datetime ? formatEventDate(event.start_datetime) : '';
+      const eventUrl = fixUrl(event.primary_url || '');
       item.innerHTML = `
         <div class="event-list-item-header">
           <div class="event-list-item-title">${escapeHtml(event.name)}</div>
           ${startDate ? `<div class="event-list-item-date">${escapeHtml(startDate)}</div>` : ''}
         </div>
-        <div class="event-list-item-url">${escapeHtml(event.primary_url || '')}</div>
+        <div class="event-list-item-url-row">
+          <div class="event-list-item-url">${escapeHtml(eventUrl)}</div>
+          <button class="copy-url-btn" title="Copy URL">📋</button>
+        </div>
         <div class="event-list-item-meta">
           ${formatEventType(event.event_type)}
           ${formatTags(event.tags || [])}
@@ -271,6 +275,17 @@ export function initEventList(deps) {
         </div>
         <div class="event-list-item-missing">${formatMissingBadges(event.missing || [])}</div>
       `;
+
+      // Copy button handler
+      const copyBtn = item.querySelector('.copy-url-btn');
+      copyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(eventUrl).then(() => {
+          copyBtn.textContent = '✓';
+          setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
+        });
+      });
+
       item.addEventListener('click', () => navigateToEvent(event));
       eventListContainer.appendChild(item);
     });
@@ -346,9 +361,9 @@ export function initEventList(deps) {
       }
     }
 
-    // Navigate browser to URL
+    // Navigate browser to URL (with www. fix for domains that need it)
     if (event.primary_url) {
-      chrome.tabs.update({ url: event.primary_url });
+      chrome.tabs.update({ url: fixUrl(event.primary_url) });
     }
 
     // Auto-switch to Current tab if enabled
