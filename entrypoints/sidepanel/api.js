@@ -7,6 +7,31 @@
 
 import { normalizeUrl } from './utils.js';
 
+/**
+ * Normalize API URL - adds protocol if missing
+ * Uses http:// for localhost/127.0.0.1, https:// for everything else
+ * @param {string} url - API URL (may or may not have protocol)
+ * @returns {string} URL with protocol
+ */
+function normalizeApiUrl(url) {
+  if (!url) return url;
+
+  // Already has protocol
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url.replace(/\/+$/, ''); // Remove trailing slashes
+  }
+
+  // Check if local development URL
+  // - localhost, 127.0.0.1: standard local
+  // - .test domains: Laravel Herd/Valet
+  const isLocal = url.startsWith('localhost') ||
+                  url.startsWith('127.0.0.1') ||
+                  url.match(/^[^\/]+\.test(\/|$|:)/);
+  const protocol = isLocal ? 'http://' : 'https://';
+
+  return protocol + url.replace(/\/+$/, ''); // Remove trailing slashes
+}
+
 // Storage key for sync data (must match sidepanel.js)
 const SYNC_DATA_KEY = 'eventatlas_sync_data';
 
@@ -22,7 +47,7 @@ export async function syncWithApi(settings) {
   if (settings.syncMode === 'realtime_only') return null;
 
   try {
-    const response = await fetch(`${settings.apiUrl}/api/extension/sync`, {
+    const response = await fetch(`${normalizeApiUrl(settings.apiUrl)}/api/extension/sync`, {
       headers: {
         'Authorization': `Bearer ${settings.apiToken}`,
         'Accept': 'application/json',
@@ -112,7 +137,7 @@ export async function lookupUrl(url, settings) {
 
   try {
     const response = await fetch(
-      `${settings.apiUrl}/api/extension/lookup?url=${encodeURIComponent(url)}`,
+      `${normalizeApiUrl(settings.apiUrl)}/api/extension/lookup?url=${encodeURIComponent(url)}`,
       {
         headers: {
           'Authorization': `Bearer ${settings.apiToken}`,
@@ -148,7 +173,7 @@ export async function testApiConnection(apiUrl, apiToken) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
-    const response = await fetch(`${apiUrl}/api/extension/sync`, {
+    const response = await fetch(`${normalizeApiUrl(apiUrl)}/api/extension/sync`, {
       method: 'GET',
       headers: {
         Accept: 'application/json',
@@ -187,7 +212,7 @@ export async function fetchTags(settings) {
   if (!settings.apiUrl || !settings.apiToken) return [];
 
   try {
-    const response = await fetch(`${settings.apiUrl}/api/extension/tags`, {
+    const response = await fetch(`${normalizeApiUrl(settings.apiUrl)}/api/extension/tags`, {
       headers: {
         'Authorization': `Bearer ${settings.apiToken}`,
         'Accept': 'application/json',
@@ -212,7 +237,7 @@ export async function fetchEventTypes(settings) {
   if (!settings.apiUrl || !settings.apiToken) return [];
 
   try {
-    const response = await fetch(`${settings.apiUrl}/api/extension/event-types`, {
+    const response = await fetch(`${normalizeApiUrl(settings.apiUrl)}/api/extension/event-types`, {
       headers: {
         'Authorization': `Bearer ${settings.apiToken}`,
         'Accept': 'application/json',
@@ -237,7 +262,7 @@ export async function fetchDistances(settings) {
   if (!settings.apiUrl || !settings.apiToken) return [];
 
   try {
-    const response = await fetch(`${settings.apiUrl}/api/extension/distances`, {
+    const response = await fetch(`${normalizeApiUrl(settings.apiUrl)}/api/extension/distances`, {
       headers: {
         'Authorization': `Bearer ${settings.apiToken}`,
         'Accept': 'application/json',
