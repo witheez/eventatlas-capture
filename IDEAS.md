@@ -4,26 +4,6 @@ Running list of ideas for the EventAtlas Capture extension. Remove items once im
 
 ---
 
-## Auto-Refresh After Save (Single Item)
-
-**Problem:** After saving changes to an event (tags, distances, etc.), the Event List doesn't update to reflect that the item may no longer match the current filter (e.g., "missing tags").
-
-**Proposed Solution:**
-- Create new endpoint: `GET /api/extension/event-list/{id}/status`
-- Returns whether the event still matches the current filter criteria
-- After saving in the extension, call this endpoint for the saved event
-- If it no longer matches, remove it from the local list
-- Avoids fetching the entire list which will be slow with thousands of records
-
-**Backend Changes Required:**
-- New endpoint in EventAtlas API
-
-**Extension Changes Required:**
-- Call status endpoint after successful save in event-editor.js
-- Remove item from local event list cache if no longer matches
-
----
-
 ## Mark URL as Broken / URL Status
 
 **Problem:** Some URLs in the Event List are broken (redirects, site down, etc.) but stay in the list forever because they're missing tags/distances that can never be added.

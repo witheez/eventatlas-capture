@@ -75,12 +75,23 @@ main.ts          → Orchestrates modules, handles UI events
 
 ### Backend Integration
 
-The extension communicates with a Laravel backend at these endpoints:
-- `GET /api/extension/lookup?url=` - URL matching
-- `GET /api/extension/events/{id}` - Fetch single event by ID
-- `GET /api/extension/event-list` - Filtered event list
-- `POST /api/extension/events/{id}` - Update event
-- `GET /api/extension/sync` - Sync data for local cache
+The extension communicates with a Laravel backend. All endpoints require Sanctum authentication.
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/extension/sync` | Bulk sync events and organizer links |
+| GET | `/api/extension/lookup?url=` | Real-time URL lookup |
+| GET | `/api/extension/events/{id}` | Fetch single event by ID |
+| PATCH | `/api/extension/events/{id}` | Update event (tags, type, distances, notes) |
+| POST | `/api/extension/events/{id}/screenshot` | Upload screenshot |
+| DELETE | `/api/extension/events/{id}/screenshot/{media}` | Delete screenshot |
+| GET | `/api/extension/event-list` | Get events for curation workflow |
+| POST | `/api/extension/event-list/mark-visited` | Mark event as visited |
+| GET | `/api/extension/tags` | Get available tags |
+| POST | `/api/extension/tags` | Create new tag |
+| GET | `/api/extension/event-types` | Get available event types |
+| GET | `/api/extension/distances` | Get predefined distances |
+| POST | `/api/extension/add-discovered-links` | Add links from extension discovery |
 
 ## Tech Stack
 

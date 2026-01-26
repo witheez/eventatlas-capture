@@ -34,28 +34,42 @@
 
 ---
 
-## Last Session: 2026-01-25
+## Last Session: 2026-01-26
 
 ### What Was Implemented
 
-**Link Discovery Comparison Feature** - When visiting a link discovery source page, the extension now:
-1. Shows all discovered child links from our system
-2. Scans the current page for links
-3. Compares page links vs known links to find NEW links
-4. Allows adding new links directly to the pipeline
+**Event List Improvements:**
+1. Added sequential numbering (1, 2, 3...) to event list items
+2. Highlight current event with green background and left border
+3. Fixed navigation buttons going to first event instead of next/previous
+4. Fixed event list not refreshing when clicking refresh button
+5. Added global "Synced X ago" indicator in header
+
+**Badge Improvements:**
+- Replaced "Known Event" badge with "Synced" (green) or "Cached" (yellow)
+- Shows whether data came from API fetch or local cache
+
+**URL Matching Bug Fix:**
+- Fixed ShowEventController returning wrong field names (`event_type` instead of `event_type_id`, `distances` instead of `distances_km`)
+- This caused cached events to show empty fields despite API returning data
+- Added flexible subdomain matching utilities
+
+**Tag Creation Bug Fix:**
+- Fixed HTTP 500 error on tag creation caused by double-submit (keydown + blur events firing simultaneously)
+- Added error handling in backend to return 422 instead of 500 on duplicate
 
 ### Files Changed
 
 **Backend (eventatlas):**
-- `LookupController.php` - Enhanced to return `child_links`, `url_pattern`, `processor_configuration_id`, `has_api_endpoint`
-- `AddDiscoveredLinksController.php` - New endpoint for creating child OrganizerLinks
-- `routes/api.php` - Added `POST /api/extension/add-discovered-links`
-- Tests added with full coverage
+- `ShowEventController.php` - Fixed field names to match LookupController (event_type_id, distances_km, tags as objects, media)
+- `TagsController.php` - Added try/catch error handling for database errors
 
 **Extension (eventatlas-capture):**
-- `manifest.json` - Added `scripting` permission
-- `sidepanel/sidepanel.html` - Link Discovery view UI + CSS
-- `sidepanel/sidepanel.js` - Scan page, compare links, add to pipeline functionality
+- `main.ts` - Event list numbering, highlighting, navigation fix, refresh fix, sync time display
+- `sidepanel.css` - Styles for highlighting, sync time, Synced/Cached badges
+- `event-editor.ts` - Fixed double-submit bug in tag creation
+- `api.ts` - Added `source` field to EventMatch interface
+- `utils.ts`, `url.ts` - Added flexible subdomain matching utilities
 
 ---
 
@@ -99,12 +113,21 @@ app/Http/Controllers/Api/Extension/   # API controllers
   - SyncController.php                # Bulk sync
 ```
 
-### Extension
+### Extension (TypeScript + WXT Framework)
 ```
-background.js           # Service worker, badge, screenshot capture
-sidepanel/sidepanel.js  # Main UI logic (~1600 lines)
-sidepanel/sidepanel.html # UI markup + styles
-content/content.js      # Page extraction
+entrypoints/
+├── background.ts           # Service worker, badge, screenshot capture
+├── content.ts              # Page extraction
+└── sidepanel/
+    ├── index.html          # UI markup
+    ├── main.ts             # Main UI orchestration
+    ├── api.ts              # API client
+    ├── store.ts            # Centralized state
+    ├── event-editor.ts     # Event editing
+    ├── event-list.ts       # Event list functionality
+    ├── url-status.ts       # URL status display
+    └── sidepanel.css       # Styles
+utils/url.ts                # URL normalization/matching
 ```
 
 ---
