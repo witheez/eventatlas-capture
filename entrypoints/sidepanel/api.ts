@@ -475,6 +475,12 @@ export interface EventListParams {
   startsFrom?: string | null;
 }
 
+export interface EventStatusFilters {
+  missingTags: boolean;
+  missingDistances: boolean;
+  filterMode: string;
+}
+
 export interface EventListEvent {
   id: number;
   name: string;
@@ -545,6 +551,30 @@ export async function fetchSingleEvent(
   return apiRequest<{ event: EventListEvent }>(`/api/extension/events/${eventId}`, {
     apiUrl: settings.apiUrl,
     apiToken: settings.apiToken,
+  });
+}
+
+/**
+ * Check if an event still matches the current filter after being updated
+ */
+export async function checkEventListStatus(
+  settings: ApiSettings,
+  eventId: number,
+  filters: EventStatusFilters
+): Promise<ApiResponse<{ matches_filter: boolean; has_tags: boolean; has_distances: boolean }>> {
+  if (!settings.apiUrl || !settings.apiToken) {
+    return { ok: false, status: 0, data: null, error: 'No API credentials' };
+  }
+
+  const params: Record<string, string> = {};
+  if (filters.missingTags) params.missing_tags = '1';
+  if (filters.missingDistances) params.missing_distances = '1';
+  if (filters.filterMode) params.filter_mode = filters.filterMode;
+
+  return apiRequest(`/api/extension/event-list/${eventId}/status`, {
+    apiUrl: settings.apiUrl,
+    apiToken: settings.apiToken,
+    params,
   });
 }
 

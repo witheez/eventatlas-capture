@@ -13,7 +13,9 @@ import {
   deleteScreenshot as apiDeleteScreenshot,
   uploadScreenshot as apiUploadScreenshot,
   updateEvent as apiUpdateEvent,
+  checkEventListStatus,
 } from './api';
+import { getFilterState, getEventListCache, setEventListCache } from './store';
 import type { Settings } from './storage';
 import type { Tag, EventType, Distance, MediaAsset } from './api';
 
@@ -1000,6 +1002,29 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
       editorSaveBtn.classList.remove('saving');
       editorSaveBtn.classList.add('saved');
       showToast('Event updated successfully', 'success');
+
+      // After successful save, check if event still matches filter
+      try {
+        const filterState = getFilterState();
+        if (filterState.missingTags || filterState.missingDistances) {
+          const statusResult = await checkEventListStatus(settings, state.currentMatchedEvent.id, {
+            missingTags: filterState.missingTags,
+            missingDistances: filterState.missingDistances,
+            filterMode: filterState.mode,
+          });
+
+          if (statusResult.ok && statusResult.data && !statusResult.data.matches_filter) {
+            // Event no longer matches filter - remove from cache
+            const cache = getEventListCache();
+            const updatedCache = cache.filter((e) => e.id !== state.currentMatchedEvent!.id);
+            setEventListCache(updatedCache);
+            // Note: The event list will re-render next time user switches to that tab
+          }
+        }
+      } catch (err) {
+        console.warn('[EventAtlas] Failed to check event status after save:', err);
+        // Non-critical, don't show error to user
+      }
 
       setTimeout(() => {
         editorSaveBtn.textContent = 'Save Changes';
