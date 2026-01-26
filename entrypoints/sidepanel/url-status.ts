@@ -6,7 +6,7 @@
  */
 
 import { escapeRegex, normalizeUrl } from './utils';
-import { lookupUrl } from './api';
+import { lookupUrl, addDiscoveredLinks as apiAddDiscoveredLinks } from './api';
 import type { Settings } from './storage';
 import type { LinkDiscoveryData } from './api';
 import {
@@ -684,26 +684,17 @@ export async function addNewLinksToPipeline(): Promise<void> {
   }
 
   try {
-    const response = await fetch(`${settings.apiUrl}/api/extension/add-discovered-links`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${settings.apiToken}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({
-        organizer_link_id: currentLinkDiscovery.organizer_link_id,
-        urls: linksToAdd,
-      }),
-    });
+    const result = await apiAddDiscoveredLinks(
+      settings,
+      currentLinkDiscovery.organizer_link_id,
+      linksToAdd
+    );
 
-    if (!response.ok) {
-      const errorData = (await response.json().catch(() => ({}))) as { message?: string };
-      throw new Error(errorData.message || `HTTP ${response.status}`);
+    if (!result.ok) {
+      throw new Error(result.error || `HTTP ${result.status}`);
     }
 
-    const data = (await response.json()) as { created_count: number };
-    callbacks.showToast?.(`Added ${data.created_count} new links to pipeline`);
+    callbacks.showToast?.(`Added ${result.data?.created_count || 0} new links to pipeline`);
 
     await updateUrlStatus();
   } catch (error) {

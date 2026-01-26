@@ -7,7 +7,12 @@
  */
 
 import { formatBytes, getDomain, generateId, fixUrl } from './utils';
-import { syncWithApi, testApiConnection } from './api';
+import {
+  syncWithApi,
+  testApiConnection,
+  fetchEventList as apiFetchEventList,
+  markEventVisited as apiMarkEventVisited,
+} from './api';
 import type { Bundle, Capture, DistancePreset } from './storage';
 import {
   saveToStorage as saveToStorageRaw,
@@ -1927,29 +1932,21 @@ async function fetchEventList(): Promise<void> {
   showEventListLoading();
 
   try {
-    const params = new URLSearchParams();
     const filterState = getFilterState();
-    if (filterState.missingTags) params.append('missing_tags', '1');
-    if (filterState.missingDistances) params.append('missing_distances', '1');
-    params.append('filter_mode', filterState.mode);
-
-    // Add starts_from filter if set
     const startsFromDate = getStartsFromDate(filterState.startsFrom);
-    if (startsFromDate) {
-      params.append('starts_from', startsFromDate);
-    }
 
-    const response = await fetch(`${settings.apiUrl}/api/extension/event-list?${params}`, {
-      headers: {
-        Authorization: `Bearer ${settings.apiToken}`,
-        Accept: 'application/json',
-      },
+    const result = await apiFetchEventList(settings, {
+      missingTags: filterState.missingTags,
+      missingDistances: filterState.missingDistances,
+      filterMode: filterState.mode,
+      startsFrom: startsFromDate,
     });
 
-    if (!response.ok) throw new Error('Failed to fetch event list');
+    if (!result.ok) {
+      throw new Error(result.error || 'Failed to fetch event list');
+    }
 
-    const data = (await response.json()) as { events?: EventListItem[] };
-    setEventListCache(data.events || []);
+    setEventListCache((result.data?.events as EventListItem[]) || []);
     setEventListLastFetched(Date.now());
 
     renderEventList();
@@ -2117,14 +2114,7 @@ async function navigateToEvent(event: EventListItem): Promise<void> {
   // Mark as visited if we have the link ID
   if (event.primary_link_id && settings.apiUrl && settings.apiToken) {
     try {
-      await fetch(`${settings.apiUrl}/api/extension/event-list/mark-visited`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${settings.apiToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ event_link_id: event.primary_link_id }),
-      });
+      await apiMarkEventVisited(settings, event.primary_link_id);
     } catch (e) {
       console.warn('[EventAtlas] Failed to mark visit:', e);
     }

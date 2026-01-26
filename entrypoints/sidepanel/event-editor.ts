@@ -5,10 +5,17 @@
  * Uses a factory pattern to receive dependencies from sidepanel.js.
  */
 
-import { fetchTags, fetchEventTypes, fetchDistances } from './api';
+import {
+  fetchTags,
+  fetchEventTypes,
+  fetchDistances,
+  createTag as apiCreateTag,
+  deleteScreenshot as apiDeleteScreenshot,
+  uploadScreenshot as apiUploadScreenshot,
+  updateEvent as apiUpdateEvent,
+} from './api';
 import type { Settings } from './storage';
-import type { Tag, EventType, Distance } from './api';
-import type { MediaAsset } from './upload-queue';
+import type { Tag, EventType, Distance, MediaAsset } from './api';
 
 // Helper to create elements - uses a reference to avoid literal string match
 const doc = globalThis.document;
@@ -316,32 +323,16 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
     }
 
     try {
-      const response = await fetch(`${settings.apiUrl}/api/extension/tags`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${settings.apiToken}`,
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name }),
-      });
+      const result = await apiCreateTag(settings, name);
 
-      if (!response.ok) {
-        const errorData = (await response.json().catch(() => ({}))) as {
-          message?: string;
-          errors?: { name?: string[] };
-        };
-        const message =
-          errorData.message || errorData.errors?.name?.[0] || `Failed: ${response.status}`;
-        throw new Error(message);
+      if (!result.ok) {
+        throw new Error(result.error || `Failed: ${result.status}`);
       }
 
-      const data = (await response.json()) as { tag?: Tag };
-
-      if (data.tag) {
+      if (result.data?.tag) {
         const state = getState();
-        state.availableTags.push(data.tag);
-        state.selectedTagIds.add(data.tag.id);
+        state.availableTags.push(result.data.tag);
+        state.selectedTagIds.add(result.data.tag.id);
 
         setState({
           availableTags: state.availableTags,
@@ -353,7 +344,7 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
         }
 
         renderTagsChips();
-        showToast(`Tag "${data.tag.name}" created`, 'success');
+        showToast(`Tag "${result.data.tag.name}" created`, 'success');
       }
     } catch (error) {
       console.error('[EventAtlas] Error creating tag:', error);
@@ -668,20 +659,10 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
     }
 
     try {
-      const response = await fetch(
-        `${settings.apiUrl}/api/extension/events/${state.currentMatchedEvent.id}/screenshot/${mediaId}`,
-        {
-          method: 'DELETE',
-          headers: {
-            Authorization: `Bearer ${settings.apiToken}`,
-            Accept: 'application/json',
-          },
-        }
-      );
+      const result = await apiDeleteScreenshot(settings, state.currentMatchedEvent.id, mediaId);
 
-      if (!response.ok) {
-        const errorData = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(errorData.message || `Delete failed: ${response.status}`);
+      if (!result.ok) {
+        throw new Error(result.error || `Delete failed: ${result.status}`);
       }
 
       if (state.currentMatchedEvent.media) {
@@ -738,34 +719,22 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
 
     try {
       for (const pending of state.pendingScreenshots) {
-        const response = await fetch(
-          `${settings.apiUrl}/api/extension/events/${state.currentMatchedEvent.id}/screenshot`,
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${settings.apiToken}`,
-              Accept: 'application/json',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              image: pending.data,
-              filename: pending.filename,
-            }),
-          }
+        const result = await apiUploadScreenshot(
+          settings,
+          state.currentMatchedEvent.id,
+          pending.data,
+          pending.filename
         );
 
-        if (!response.ok) {
-          const errorData = (await response.json().catch(() => ({}))) as { message?: string };
-          throw new Error(errorData.message || `Upload failed: ${response.status}`);
+        if (!result.ok) {
+          throw new Error(result.error || `Upload failed: ${result.status}`);
         }
 
-        const data = (await response.json()) as { media_asset?: MediaAsset };
-
-        if (data.media_asset) {
+        if (result.data?.media_asset) {
           if (!state.currentMatchedEvent.media) {
             state.currentMatchedEvent.media = [];
           }
-          state.currentMatchedEvent.media.push(data.media_asset);
+          state.currentMatchedEvent.media.push(result.data.media_asset);
         }
       }
 
@@ -1009,25 +978,17 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
         notes: editorNotes.value || null,
       };
 
-      const response = await fetch(
-        `${settings.apiUrl}/api/extension/events/${state.currentMatchedEvent.id}`,
-        {
-          method: 'PATCH',
-          headers: {
-            Authorization: `Bearer ${settings.apiToken}`,
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        }
+      const result = await apiUpdateEvent<{ event?: MatchedEvent }>(
+        settings,
+        state.currentMatchedEvent.id,
+        payload
       );
 
-      if (!response.ok) {
-        const errorData = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(errorData.message || `Save failed: ${response.status}`);
+      if (!result.ok) {
+        throw new Error(result.error || `Save failed: ${result.status}`);
       }
 
-      const data = (await response.json()) as { event?: MatchedEvent };
+      const data = result.data;
 
       if (data.event) {
         setState({

@@ -130,7 +130,10 @@ function normalizeBaseUrl(url: string): string {
  * Centralized API request function
  * All API calls should go through this function
  */
-async function apiRequest<T = unknown>(endpoint: string, options: ApiRequestOptions): Promise<ApiResponse<T>> {
+async function apiRequest<T = unknown>(
+  endpoint: string,
+  options: ApiRequestOptions
+): Promise<ApiResponse<T>> {
   const {
     apiUrl,
     apiToken,
@@ -156,8 +159,8 @@ async function apiRequest<T = unknown>(endpoint: string, options: ApiRequestOpti
     const fetchOptions: RequestInit = {
       method,
       headers: {
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${apiToken}`,
+        Accept: 'application/json',
+        Authorization: `Bearer ${apiToken}`,
       },
       signal: signal || controller.signal,
     };
@@ -185,7 +188,12 @@ async function apiRequest<T = unknown>(endpoint: string, options: ApiRequestOpti
       return { ok: false, status: 0, data: null, error: 'Timeout' };
     }
 
-    return { ok: false, status: 0, data: null, error: error instanceof Error ? error.message : 'Unknown error' };
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
   }
 }
 
@@ -230,7 +238,9 @@ export async function syncWithApi(settings: ApiSettings): Promise<SyncData | nul
 async function getLocalMatch(url: string): Promise<EventMatch | LinkDiscoveryMatch | null> {
   try {
     const result = await chrome.storage.local.get([SYNC_DATA_KEY]);
-    const syncData = result[SYNC_DATA_KEY] as { events?: SyncEvent[]; organizerLinks?: OrganizerLink[] } | undefined;
+    const syncData = result[SYNC_DATA_KEY] as
+      | { events?: SyncEvent[]; organizerLinks?: OrganizerLink[] }
+      | undefined;
 
     if (!syncData) return null;
 
@@ -290,7 +300,10 @@ export async function lookupUrl(url: string, settings: ApiSettings): Promise<Loo
 /**
  * Test API connection
  */
-export async function testApiConnection(apiUrl: string, apiToken: string): Promise<{ success: boolean; message: string }> {
+export async function testApiConnection(
+  apiUrl: string,
+  apiToken: string
+): Promise<{ success: boolean; message: string }> {
   if (!apiUrl) {
     return { success: false, message: 'Enter API URL' };
   }
@@ -380,3 +393,149 @@ export async function fetchDistances(settings: ApiSettings): Promise<Distance[]>
 
   return result.data.distances || [];
 }
+
+/**
+ * Create a new tag
+ */
+export async function createTag(
+  settings: ApiSettings,
+  name: string
+): Promise<ApiResponse<{ tag: Tag }>> {
+  return apiRequest<{ tag: Tag }>('/api/extension/tags', {
+    apiUrl: settings.apiUrl,
+    apiToken: settings.apiToken,
+    method: 'POST',
+    body: { name },
+  });
+}
+
+/**
+ * Delete a screenshot from an event
+ */
+export async function deleteScreenshot(
+  settings: ApiSettings,
+  eventId: number,
+  mediaId: number
+): Promise<ApiResponse<void>> {
+  return apiRequest<void>(`/api/extension/events/${eventId}/screenshot/${mediaId}`, {
+    apiUrl: settings.apiUrl,
+    apiToken: settings.apiToken,
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Upload a screenshot to an event
+ */
+export interface MediaAsset {
+  id: number;
+  type: string;
+  file_url: string;
+  thumbnail_url?: string;
+  name?: string;
+}
+
+export async function uploadScreenshot(
+  settings: ApiSettings,
+  eventId: number,
+  imageData: string,
+  filename: string
+): Promise<ApiResponse<{ media_asset: MediaAsset }>> {
+  return apiRequest<{ media_asset: MediaAsset }>(`/api/extension/events/${eventId}/screenshot`, {
+    apiUrl: settings.apiUrl,
+    apiToken: settings.apiToken,
+    method: 'POST',
+    body: { image: imageData, filename },
+  });
+}
+
+/**
+ * Update an event
+ */
+export async function updateEvent<T = unknown>(
+  settings: ApiSettings,
+  eventId: number,
+  data: Record<string, unknown>
+): Promise<ApiResponse<T>> {
+  return apiRequest<T>(`/api/extension/events/${eventId}`, {
+    apiUrl: settings.apiUrl,
+    apiToken: settings.apiToken,
+    method: 'PATCH',
+    body: data,
+  });
+}
+
+/**
+ * Fetch event list with filters
+ */
+export interface EventListParams {
+  missingTags?: boolean;
+  missingDistances?: boolean;
+  filterMode?: string;
+  startsFrom?: string | null;
+}
+
+export interface EventListEvent {
+  id: number;
+  name: string;
+  start_datetime?: string;
+  primary_url?: string;
+  primary_link_id?: number;
+  event_type?: string;
+  tags?: string[];
+  distances?: number[];
+  missing?: string[];
+}
+
+export async function fetchEventList(
+  settings: ApiSettings,
+  params: EventListParams
+): Promise<ApiResponse<{ events: EventListEvent[] }>> {
+  const queryParams: Record<string, string> = {};
+  if (params.missingTags) queryParams.missing_tags = '1';
+  if (params.missingDistances) queryParams.missing_distances = '1';
+  if (params.filterMode) queryParams.filter_mode = params.filterMode;
+  if (params.startsFrom) queryParams.starts_from = params.startsFrom;
+
+  return apiRequest<{ events: EventListEvent[] }>('/api/extension/event-list', {
+    apiUrl: settings.apiUrl,
+    apiToken: settings.apiToken,
+    params: queryParams,
+  });
+}
+
+/**
+ * Mark an event as visited in the event list
+ */
+export async function markEventVisited(
+  settings: ApiSettings,
+  eventLinkId: number
+): Promise<ApiResponse<void>> {
+  return apiRequest<void>('/api/extension/event-list/mark-visited', {
+    apiUrl: settings.apiUrl,
+    apiToken: settings.apiToken,
+    method: 'POST',
+    body: { event_link_id: eventLinkId },
+  });
+}
+
+/**
+ * Add discovered links to the pipeline
+ */
+export async function addDiscoveredLinks(
+  settings: ApiSettings,
+  organizerLinkId: number,
+  urls: string[]
+): Promise<ApiResponse<{ created_count: number }>> {
+  return apiRequest<{ created_count: number }>('/api/extension/add-discovered-links', {
+    apiUrl: settings.apiUrl,
+    apiToken: settings.apiToken,
+    method: 'POST',
+    body: { organizer_link_id: organizerLinkId, urls },
+  });
+}
+
+/**
+ * Export normalizeBaseUrl for use in upload-queue.ts (XHR needs manual URL construction)
+ */
+export { normalizeBaseUrl };

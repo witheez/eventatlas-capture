@@ -6,6 +6,7 @@
  */
 
 import { generateId } from './utils';
+import { normalizeBaseUrl } from './api';
 import type { Settings } from './storage';
 import {
   getUploadQueue as getUploadQueueFromStore,
@@ -122,7 +123,12 @@ export function generateThumbnail(imageData: string, maxSize = 96): Promise<stri
 /**
  * Add item to upload queue and start upload
  */
-export async function addToUploadQueue(eventId: number, eventName: string, imageData: string, filename: string): Promise<QueueItem> {
+export async function addToUploadQueue(
+  eventId: number,
+  eventName: string,
+  imageData: string,
+  filename: string
+): Promise<QueueItem> {
   const id = generateId();
   const thumbnail = await generateThumbnail(imageData);
 
@@ -196,16 +202,21 @@ export function uploadQueueItem(queueItem: QueueItem): void {
     markQueueItemFailed(queueItem.id, 'Upload timeout');
   });
 
-  xhr.open('POST', `${settings.apiUrl}/api/extension/events/${queueItem.eventId}/screenshot`);
+  xhr.open(
+    'POST',
+    `${normalizeBaseUrl(settings.apiUrl)}/api/extension/events/${queueItem.eventId}/screenshot`
+  );
   xhr.setRequestHeader('Authorization', `Bearer ${settings.apiToken}`);
   xhr.setRequestHeader('Accept', 'application/json');
   xhr.setRequestHeader('Content-Type', 'application/json');
   xhr.timeout = 60000; // 60 second timeout
 
-  xhr.send(JSON.stringify({
-    image: queueItem.imageData,
-    filename: queueItem.filename,
-  }));
+  xhr.send(
+    JSON.stringify({
+      image: queueItem.imageData,
+      filename: queueItem.filename,
+    })
+  );
 }
 
 /**
@@ -219,7 +230,9 @@ export function updateQueueItemProgress(id: string, progress: number): void {
 
     // Also update grid overlay if visible
     const savedScreenshotsEl = document.getElementById('savedScreenshots');
-    const gridItem = savedScreenshotsEl?.querySelector(`[data-queue-id="${id}"] .upload-overlay span`);
+    const gridItem = savedScreenshotsEl?.querySelector(
+      `[data-queue-id="${id}"] .upload-overlay span`
+    );
     if (gridItem) {
       gridItem.textContent = `${progress}%`;
     }
@@ -302,7 +315,9 @@ export function renderUploadQueue(): void {
 
   const uploadQueue = getUploadQueueFromStore();
   // Filter to only show active items (uploading or failed, or recently completed)
-  const activeItems = uploadQueue.filter(q => q.status !== 'complete' || (q.completedAt && Date.now() - q.completedAt < 1500));
+  const activeItems = uploadQueue.filter(
+    (q) => q.status !== 'complete' || (q.completedAt && Date.now() - q.completedAt < 1500)
+  );
 
   // Show/hide queue based on content
   if (activeItems.length === 0) {
@@ -315,12 +330,14 @@ export function renderUploadQueue(): void {
   document.body.classList.add('has-upload-queue');
 
   // Update count and title based on status
-  const uploadingCount = uploadQueue.filter(q => q.status === 'uploading').length;
-  const failedCount = uploadQueue.filter(q => q.status === 'failed').length;
+  const uploadingCount = uploadQueue.filter((q) => q.status === 'uploading').length;
+  const failedCount = uploadQueue.filter((q) => q.status === 'failed').length;
   const queueTitle = uploadQueueEl.querySelector('.upload-queue-title');
 
   if (failedCount > 0 && uploadingCount === 0) {
-    if (queueTitle) queueTitle.textContent = failedCount === 1 ? '1 upload failed' : `${failedCount} uploads failed`;
+    if (queueTitle)
+      queueTitle.textContent =
+        failedCount === 1 ? '1 upload failed' : `${failedCount} uploads failed`;
     uploadQueueCountEl.textContent = String(failedCount);
   } else if (uploadingCount > 0) {
     if (queueTitle) queueTitle.textContent = 'Uploading...';
@@ -335,7 +352,7 @@ export function renderUploadQueue(): void {
     uploadQueueItemsEl.removeChild(uploadQueueItemsEl.firstChild);
   }
 
-  activeItems.forEach(item => {
+  activeItems.forEach((item) => {
     const itemEl = createElement('div');
     itemEl.className = `upload-queue-item ${item.status}`;
     itemEl.dataset.id = item.id;

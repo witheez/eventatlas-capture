@@ -6,6 +6,10 @@
  */
 
 import { escapeHtml, fixUrl } from './utils';
+import {
+  fetchEventList as apiFetchEventList,
+  markEventVisited as apiMarkEventVisited,
+} from './api';
 import type { Settings, FilterState } from './storage';
 
 // Type definitions
@@ -46,7 +50,9 @@ interface EventListState {
 interface EventListDependencies {
   elements: EventListElements;
   getSettings: () => Settings;
-  getState: <K extends keyof EventListState>(key?: K) => K extends undefined ? EventListState : EventListState[K];
+  getState: <K extends keyof EventListState>(
+    key?: K
+  ) => K extends undefined ? EventListState : EventListState[K];
   setState: <K extends keyof EventListState>(key: K, value: EventListState[K]) => void;
   saveFilterState: () => Promise<void>;
   saveToStorage: () => Promise<void>;
@@ -148,11 +154,16 @@ export function getStartsFromDate(presetOrDate: string | null): string | null {
   if (!presetOrDate) return null;
 
   switch (presetOrDate) {
-    case 'this_month': return getFirstOfMonth(0);
-    case 'next_month': return getFirstOfMonth(1);
-    case '2_months': return getFirstOfMonth(2);
-    case '3_months': return getFirstOfMonth(3);
-    case '6_months': return getFirstOfMonth(6);
+    case 'this_month':
+      return getFirstOfMonth(0);
+    case 'next_month':
+      return getFirstOfMonth(1);
+    case '2_months':
+      return getFirstOfMonth(2);
+    case '3_months':
+      return getFirstOfMonth(3);
+    case '6_months':
+      return getFirstOfMonth(6);
     default:
       // Assume it's an ISO date string
       if (/^\d{4}-\d{2}-\d{2}$/.test(presetOrDate)) {
@@ -182,13 +193,7 @@ interface EventListAPI {
  * Initialize the event list module with dependencies
  */
 export function initEventList(deps: EventListDependencies): EventListAPI {
-  const {
-    elements,
-    getSettings,
-    getState,
-    setState,
-    saveFilterState,
-  } = deps;
+  const { elements, getSettings, getState, setState, saveFilterState } = deps;
 
   // Extract DOM elements for convenience
   const {
@@ -251,28 +256,20 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
     showEventListLoading();
 
     try {
-      const params = new URLSearchParams();
-      if (filterState.missingTags) params.append('missing_tags', '1');
-      if (filterState.missingDistances) params.append('missing_distances', '1');
-      params.append('filter_mode', filterState.mode);
-
-      // Add starts_from filter if set
       const startsFromDate = getStartsFromDate(filterState.startsFrom);
-      if (startsFromDate) {
-        params.append('starts_from', startsFromDate);
-      }
 
-      const response = await fetch(`${settings.apiUrl}/api/extension/event-list?${params}`, {
-        headers: {
-          Authorization: `Bearer ${settings.apiToken}`,
-          Accept: 'application/json',
-        },
+      const result = await apiFetchEventList(settings, {
+        missingTags: filterState.missingTags,
+        missingDistances: filterState.missingDistances,
+        filterMode: filterState.mode,
+        startsFrom: startsFromDate,
       });
 
-      if (!response.ok) throw new Error('Failed to fetch event list');
+      if (!result.ok) {
+        throw new Error(result.error || 'Failed to fetch event list');
+      }
 
-      const data = await response.json() as { events?: EventListEvent[] };
-      setState('eventListCache', data.events || []);
+      setState('eventListCache', result.data?.events || []);
       setState('eventListLastFetched', Date.now());
 
       renderEventList();
@@ -356,7 +353,9 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
         e.stopPropagation();
         navigator.clipboard.writeText(eventUrl).then(() => {
           copyBtn.textContent = '\u2713';
-          setTimeout(() => { copyBtn.textContent = '\u{1F4CB}'; }, 1500);
+          setTimeout(() => {
+            copyBtn.textContent = '\u{1F4CB}';
+          }, 1500);
         });
       });
       urlRow.appendChild(copyBtn);
@@ -390,7 +389,7 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
       if (event.distances && event.distances.length > 0) {
         const distBadge = item.ownerDocument.createElement('span');
         distBadge.className = 'meta-badge meta-distance';
-        distBadge.textContent = event.distances.map(d => `${d}km`).join(', ');
+        distBadge.textContent = event.distances.map((d) => `${d}km`).join(', ');
         meta.appendChild(distBadge);
       }
       item.appendChild(meta);
@@ -399,7 +398,7 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
       if (event.missing && event.missing.length > 0) {
         const missingDiv = item.ownerDocument.createElement('div');
         missingDiv.className = 'event-list-item-missing';
-        event.missing.forEach(m => {
+        event.missing.forEach((m) => {
           const badge = item.ownerDocument.createElement('span');
           badge.className = 'missing-badge';
           badge.textContent = m;
@@ -427,7 +426,7 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
     clearChildren(dropdown);
 
     // Create option elements
-    options.forEach(opt => {
+    options.forEach((opt) => {
       const optionEl = dropdown.ownerDocument.createElement('option');
       optionEl.value = opt.value;
       optionEl.textContent = opt.label;
@@ -478,14 +477,7 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
     // Mark as visited if we have the link ID
     if (event.primary_link_id && settings.apiUrl && settings.apiToken) {
       try {
-        await fetch(`${settings.apiUrl}/api/extension/event-list/mark-visited`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${settings.apiToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ event_link_id: event.primary_link_id }),
-        });
+        await apiMarkEventVisited(settings, event.primary_link_id);
       } catch (e) {
         console.warn('[EventAtlas] Failed to mark visit:', e);
       }
@@ -531,7 +523,9 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
     // Tab navigation
     if (tabNavigation) {
       tabNavigation.querySelectorAll('.tab-btn').forEach((btn) => {
-        btn.addEventListener('click', () => switchMainTab((btn as HTMLElement).dataset.tab || 'current'));
+        btn.addEventListener('click', () =>
+          switchMainTab((btn as HTMLElement).dataset.tab || 'current')
+        );
       });
     }
 
@@ -558,9 +552,13 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
     }
 
     // Starts from filter dropdown
-    const filterStartsFrom = document.getElementById('filterStartsFrom') as HTMLSelectElement | null;
+    const filterStartsFrom = document.getElementById(
+      'filterStartsFrom'
+    ) as HTMLSelectElement | null;
     const customDateInput = document.getElementById('filterCustomDate') as HTMLInputElement | null;
-    const customDateContainer = document.getElementById('customDateContainer') as HTMLElement | null;
+    const customDateContainer = document.getElementById(
+      'customDateContainer'
+    ) as HTMLElement | null;
 
     if (filterStartsFrom) {
       filterStartsFrom.addEventListener('change', async (e) => {
