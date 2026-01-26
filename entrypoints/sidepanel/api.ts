@@ -41,6 +41,38 @@ export interface SyncEvent {
   name?: string;
 }
 
+/**
+ * Full event data returned by the /api/extension/lookup endpoint
+ * Contains all fields needed for the event editor panel
+ */
+export interface LookupEvent {
+  id: number;
+  title?: string;
+  name?: string;
+  source_url_normalized?: string;
+  start_date?: string;
+  end_date?: string;
+  location?: string;
+  source_url?: string;
+  last_scraped_at?: string;
+  organizer_name?: string;
+  content_item_id?: number;
+  links?: Array<{ type: string; url: string; is_primary: boolean }>;
+  // Event editor fields
+  event_type_id?: number;
+  event_type_name?: string;
+  distances_km?: number[];
+  notes?: string;
+  tags?: Array<{ id: number; name: string }>;
+  media?: Array<{
+    id: number;
+    file_url: string;
+    thumbnail_url?: string;
+    name?: string;
+    type?: string;
+  }>;
+}
+
 export interface OrganizerLink {
   url_normalized: string;
   id: number;
@@ -54,7 +86,7 @@ export interface SyncData {
 
 export interface EventMatch {
   match_type: 'event';
-  event: SyncEvent;
+  event: LookupEvent;
 }
 
 export interface LinkDiscoveryMatch {
@@ -247,10 +279,11 @@ async function getLocalMatch(url: string): Promise<EventMatch | LinkDiscoveryMat
     const normalizedUrl = normalizeUrl(url);
 
     // Check events - API returns source_url_normalized
+    // Note: Local sync data only has basic SyncEvent fields, cast to LookupEvent
     const events = syncData.events || [];
     for (const event of events) {
       if (event.source_url_normalized === normalizedUrl) {
-        return { match_type: 'event', event };
+        return { match_type: 'event', event: event as LookupEvent };
       }
     }
 
