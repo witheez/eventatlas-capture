@@ -5,9 +5,8 @@
  * Uses a factory pattern to receive dependencies from sidepanel.js.
  */
 
-import { generateId } from './utils';
 import { fetchTags, fetchEventTypes, fetchDistances } from './api';
-import type { Settings, DistancePreset } from './storage';
+import type { Settings } from './storage';
 import type { Tag, EventType, Distance } from './api';
 import type { MediaAsset } from './upload-queue';
 
@@ -53,7 +52,13 @@ interface EventEditorState {
   selectedDistanceValues: number[];
   pendingScreenshots: PendingScreenshot[];
   eventEditorExpanded: boolean;
-  uploadQueue: { id: string; eventId: number; status: string; progress: number; thumbnail: string }[];
+  uploadQueue: {
+    id: string;
+    eventId: number;
+    status: string;
+    progress: number;
+    thumbnail: string;
+  }[];
   pendingUrlChange: string | null;
 }
 
@@ -151,7 +156,7 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
     setState,
     showToast,
     buildAdminEditUrl,
-    captureScreenshot,
+    captureScreenshot: _captureScreenshot,
     openScreenshotModal,
     mergeDistancesWithPresets,
   } = deps;
@@ -314,20 +319,24 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
       const response = await fetch(`${settings.apiUrl}/api/extension/tags`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${settings.apiToken}`,
-          'Accept': 'application/json',
+          Authorization: `Bearer ${settings.apiToken}`,
+          Accept: 'application/json',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ name }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({})) as { message?: string; errors?: { name?: string[] } };
-        const message = errorData.message || errorData.errors?.name?.[0] || `Failed: ${response.status}`;
+        const errorData = (await response.json().catch(() => ({}))) as {
+          message?: string;
+          errors?: { name?: string[] };
+        };
+        const message =
+          errorData.message || errorData.errors?.name?.[0] || `Failed: ${response.status}`;
         throw new Error(message);
       }
 
-      const data = await response.json() as { tag?: Tag };
+      const data = (await response.json()) as { tag?: Tag };
 
       if (data.tag) {
         const state = getState();
@@ -474,7 +483,7 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
       const chip = createElement('span');
       chip.className = 'selected-distance-chip';
 
-      const distObj = state.availableDistances.find(d => d.value === value);
+      const distObj = state.availableDistances.find((d) => d.value === value);
       const label = distObj ? distObj.label : `${value}K`;
 
       chip.appendChild(doc.createTextNode(label + ' '));
@@ -501,7 +510,7 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
     const state = getState();
     clearChildren(savedScreenshotsEl);
 
-    const screenshots = media.filter(m => m.type === 'screenshot' || m.type === 'Screenshot');
+    const screenshots = media.filter((m) => m.type === 'screenshot' || m.type === 'Screenshot');
 
     if (screenshots.length === 0 && state.pendingScreenshots.length === 0) {
       const noScreenshotsDiv = createElement('div');
@@ -521,7 +530,8 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
       img.onerror = () => {
         clearChildren(div);
         const errorDiv = createElement('div');
-        errorDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:10px;';
+        errorDiv.style.cssText =
+          'display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:10px;';
         errorDiv.textContent = 'Failed';
         div.appendChild(errorDiv);
       };
@@ -545,9 +555,8 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
       savedScreenshotsEl.appendChild(div);
     });
 
-    const uploadingForEvent = state.uploadQueue.filter(q =>
-      q.eventId === state.currentMatchedEvent?.id &&
-      q.status === 'uploading'
+    const uploadingForEvent = state.uploadQueue.filter(
+      (q) => q.eventId === state.currentMatchedEvent?.id && q.status === 'uploading'
     );
 
     uploadingForEvent.forEach((item) => {
@@ -577,7 +586,9 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
 
   function renderPendingScreenshots(): void {
     const state = getState();
-    let pendingSection = savedScreenshotsEl.querySelector('.pending-screenshots-section') as HTMLElement | null;
+    let pendingSection = savedScreenshotsEl.querySelector(
+      '.pending-screenshots-section'
+    ) as HTMLElement | null;
     if (!pendingSection) {
       pendingSection = createElement('div');
       pendingSection.className = 'pending-screenshots-section';
@@ -637,7 +648,7 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
 
   function removePendingScreenshot(id: string): void {
     const state = getState();
-    const newPending = state.pendingScreenshots.filter(s => s.id !== id);
+    const newPending = state.pendingScreenshots.filter((s) => s.id !== id);
     setState({ pendingScreenshots: newPending });
     if (state.currentMatchedEvent) {
       renderSavedScreenshots(state.currentMatchedEvent.media || []);
@@ -662,28 +673,32 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
         {
           method: 'DELETE',
           headers: {
-            'Authorization': `Bearer ${settings.apiToken}`,
-            'Accept': 'application/json',
+            Authorization: `Bearer ${settings.apiToken}`,
+            Accept: 'application/json',
           },
         }
       );
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({})) as { message?: string };
+        const errorData = (await response.json().catch(() => ({}))) as { message?: string };
         throw new Error(errorData.message || `Delete failed: ${response.status}`);
       }
 
       if (state.currentMatchedEvent.media) {
-        state.currentMatchedEvent.media = state.currentMatchedEvent.media.filter(m => m.id !== mediaId);
+        state.currentMatchedEvent.media = state.currentMatchedEvent.media.filter(
+          (m) => m.id !== mediaId
+        );
         setState({ currentMatchedEvent: state.currentMatchedEvent });
       }
 
       renderSavedScreenshots(state.currentMatchedEvent.media || []);
       showToast('Screenshot deleted', 'success');
-
     } catch (error) {
       console.error('[EventAtlas] Error deleting screenshot:', error);
-      showToast((error instanceof Error ? error.message : null) || 'Failed to delete screenshot', 'error');
+      showToast(
+        (error instanceof Error ? error.message : null) || 'Failed to delete screenshot',
+        'error'
+      );
     }
   }
 
@@ -700,7 +715,8 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
     if (message) {
       unsavedDialogText.textContent = message;
     } else {
-      unsavedDialogText.textContent = 'You have pending screenshots that haven\'t been uploaded. What would you like to do?';
+      unsavedDialogText.textContent =
+        "You have pending screenshots that haven't been uploaded. What would you like to do?";
     }
     unsavedDialog.classList.add('visible');
   }
@@ -727,8 +743,8 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
           {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${settings.apiToken}`,
-              'Accept': 'application/json',
+              Authorization: `Bearer ${settings.apiToken}`,
+              Accept: 'application/json',
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
@@ -739,11 +755,11 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
         );
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({})) as { message?: string };
+          const errorData = (await response.json().catch(() => ({}))) as { message?: string };
           throw new Error(errorData.message || `Upload failed: ${response.status}`);
         }
 
-        const data = await response.json() as { media_asset?: MediaAsset };
+        const data = (await response.json()) as { media_asset?: MediaAsset };
 
         if (data.media_asset) {
           if (!state.currentMatchedEvent.media) {
@@ -766,7 +782,10 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
       return true;
     } catch (error) {
       console.error('[EventAtlas] Error uploading pending screenshots:', error);
-      showToast((error instanceof Error ? error.message : null) || 'Failed to upload screenshots', 'error');
+      showToast(
+        (error instanceof Error ? error.message : null) || 'Failed to upload screenshots',
+        'error'
+      );
 
       editorSaveBtn.textContent = 'Save Changes';
       editorSaveBtn.disabled = false;
@@ -920,7 +939,7 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
     });
     renderEventTypePills();
 
-    const newTagIds = new Set((event.tags || []).map(t => t.id));
+    const newTagIds = new Set((event.tags || []).map((t) => t.id));
     setState({ selectedTagIds: newTagIds });
     renderTagsChips();
 
@@ -990,22 +1009,25 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
         notes: editorNotes.value || null,
       };
 
-      const response = await fetch(`${settings.apiUrl}/api/extension/events/${state.currentMatchedEvent.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${settings.apiToken}`,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      const response = await fetch(
+        `${settings.apiUrl}/api/extension/events/${state.currentMatchedEvent.id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${settings.apiToken}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        }
+      );
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({})) as { message?: string };
+        const errorData = (await response.json().catch(() => ({}))) as { message?: string };
         throw new Error(errorData.message || `Save failed: ${response.status}`);
       }
 
-      const data = await response.json() as { event?: MatchedEvent };
+      const data = (await response.json()) as { event?: MatchedEvent };
 
       if (data.event) {
         setState({
@@ -1023,13 +1045,15 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
         editorSaveBtn.classList.remove('saved');
         editorSaveBtn.disabled = false;
       }, 1500);
-
     } catch (error) {
       console.error('[EventAtlas] Error saving event:', error);
       editorSaveBtn.textContent = 'Error';
       editorSaveBtn.classList.remove('saving');
       editorSaveBtn.classList.add('error');
-      showToast((error instanceof Error ? error.message : null) || 'Failed to save changes', 'error');
+      showToast(
+        (error instanceof Error ? error.message : null) || 'Failed to save changes',
+        'error'
+      );
 
       setTimeout(() => {
         editorSaveBtn.textContent = 'Save Changes';

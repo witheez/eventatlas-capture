@@ -103,24 +103,29 @@ export async function loadFromStorage(
 
     if (result[storageKey]) {
       const data = result[storageKey] as StorageData;
-      const bundles = data.bundles || [];
-      let settings = { ...defaultSettings, ...data.settings };
+      const loadedBundles = data.bundles || [];
+      const loadedSettings = { ...defaultSettings, ...data.settings };
       let migrated = false;
 
       // Migrate old customDistancePresets string format to new toggle-based format
-      if (settings.customDistancePresets && typeof settings.customDistancePresets === 'string') {
-        settings.distancePresets = migrateOldDistancePresets(settings.customDistancePresets);
-        delete settings.customDistancePresets;
+      if (
+        loadedSettings.customDistancePresets &&
+        typeof loadedSettings.customDistancePresets === 'string'
+      ) {
+        loadedSettings.distancePresets = migrateOldDistancePresets(
+          loadedSettings.customDistancePresets
+        );
+        delete loadedSettings.customDistancePresets;
         migrated = true;
       }
 
-      return { bundles, settings, migrated };
+      return { bundles: loadedBundles, settings: loadedSettings, migrated };
     }
 
     // Check for old storage format and migrate
     if (result[oldStorageKey] && Array.isArray(result[oldStorageKey])) {
       const oldData = result[oldStorageKey] as Capture[];
-      let bundles: Bundle[] = [];
+      const bundles: Bundle[] = [];
 
       if (oldData.length > 0) {
         // Group by domain for migration
@@ -176,7 +181,10 @@ export async function clearAllStorage(storageKey: string, settings: Settings): P
  * @param filterStateKey - The filter state storage key
  * @param filterState - The filter state object
  */
-export async function saveFilterState(filterStateKey: string, filterState: FilterState): Promise<void> {
+export async function saveFilterState(
+  filterStateKey: string,
+  filterState: FilterState
+): Promise<void> {
   try {
     await chrome.storage.local.set({ [filterStateKey]: filterState });
   } catch (err) {
@@ -190,7 +198,10 @@ export async function saveFilterState(filterStateKey: string, filterState: Filte
  * @param defaultFilterState - Default filter state
  * @returns The loaded filter state merged with defaults
  */
-export async function loadFilterState(filterStateKey: string, defaultFilterState: FilterState): Promise<FilterState> {
+export async function loadFilterState(
+  filterStateKey: string,
+  defaultFilterState: FilterState
+): Promise<FilterState> {
   try {
     const result = await chrome.storage.local.get([filterStateKey]);
     if (result[filterStateKey]) {

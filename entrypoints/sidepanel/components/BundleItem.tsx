@@ -29,7 +29,7 @@ function getDomain(url: string): string {
 
 export function BundleItem({
   bundle,
-  isCurrentBundle,
+  isCurrentBundle: _isCurrentBundle,
   onToggleExpanded,
   onDeleteBundle,
   onCopyBundle,
@@ -45,15 +45,21 @@ export function BundleItem({
     onToggleExpanded(bundle.id);
   }, [bundle.id, onToggleExpanded]);
 
-  const handleDeleteClick = useCallback((e: Event) => {
-    e.stopPropagation();
-    onDeleteBundle(bundle.id);
-  }, [bundle.id, onDeleteBundle]);
+  const handleDeleteClick = useCallback(
+    (e: Event) => {
+      e.stopPropagation();
+      onDeleteBundle(bundle.id);
+    },
+    [bundle.id, onDeleteBundle]
+  );
 
-  const handleCopyClick = useCallback((e: Event) => {
-    e.stopPropagation();
-    onCopyBundle(bundle.id);
-  }, [bundle.id, onCopyBundle]);
+  const handleCopyClick = useCallback(
+    (e: Event) => {
+      e.stopPropagation();
+      onCopyBundle(bundle.id);
+    },
+    [bundle.id, onCopyBundle]
+  );
 
   const handleDragOver = useCallback((e: DragEvent) => {
     e.preventDefault();
@@ -71,11 +77,14 @@ export function BundleItem({
     }
   }, []);
 
-  const handleDrop = useCallback((e: DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    onDrop(bundle.id);
-  }, [bundle.id, onDrop]);
+  const handleDrop = useCallback(
+    (e: DragEvent) => {
+      e.preventDefault();
+      setIsDragOver(false);
+      onDrop(bundle.id);
+    },
+    [bundle.id, onDrop]
+  );
 
   const pageCount = bundle.pages?.length || 0;
   const wrapperClass = `accordion-bundle${bundle.expanded ? ' expanded' : ''}${isDragOver ? ' drag-over' : ''}`;

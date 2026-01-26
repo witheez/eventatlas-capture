@@ -5,10 +5,10 @@
  * Manages the page status indicator and link scanning/comparison.
  */
 
-import { escapeRegex, escapeHtml, normalizeUrl } from './utils';
+import { escapeRegex, normalizeUrl } from './utils';
 import { lookupUrl } from './api';
 import type { Settings } from './storage';
-import type { LookupResult, LinkDiscoveryData } from './api';
+import type { LinkDiscoveryData } from './api';
 import {
   getSettings,
   setSettings,
@@ -22,7 +22,6 @@ import {
   setSelectedNewLinks,
   getLastKnownUrl,
   setLastKnownUrl,
-  getPendingUrlChange,
   setPendingUrlChange,
 } from './store';
 
@@ -320,7 +319,7 @@ export function updateBundleUIVisibility(isEventMatched: boolean): void {
 /**
  * Update the page info details section (legacy - kept for backward compatibility)
  */
-export function updatePageInfoDetails(eventName: string, eventId: number | undefined): void {
+export function updatePageInfoDetails(eventName: string, _eventId: number | undefined): void {
   if (elements.pageInfoDetails) elements.pageInfoDetails.style.display = 'none';
 
   if (eventName && elements.pageInfoEventName) {
@@ -443,7 +442,9 @@ export function showLinkDiscoveryView(linkDiscoveryData: LinkDiscoveryData): voi
   }
 
   if (elements.discoveryApiBadge) {
-    elements.discoveryApiBadge.style.display = linkDiscoveryData.has_api_endpoint ? 'inline-block' : 'none';
+    elements.discoveryApiBadge.style.display = linkDiscoveryData.has_api_endpoint
+      ? 'inline-block'
+      : 'none';
   }
 
   if (elements.discoveryLastScraped) {
@@ -541,19 +542,19 @@ export function extractLinksFromPage(urlPattern: string | null): string[] {
     if (href && href.startsWith('http')) {
       try {
         const url = new URL(href);
-        let normalized = url.origin + url.pathname.replace(/\/$/, '');
+        const normalizedUrl = url.origin + url.pathname.replace(/\/$/, '');
 
         if (urlPattern) {
           try {
             const regex = new RegExp(urlPattern, 'i');
             if (regex.test(href)) {
-              uniqueUrls.add(normalized);
+              uniqueUrls.add(normalizedUrl);
             }
           } catch {
-            uniqueUrls.add(normalized);
+            uniqueUrls.add(normalizedUrl);
           }
         } else {
-          uniqueUrls.add(normalized);
+          uniqueUrls.add(normalizedUrl);
         }
       } catch {
         // Invalid URL, skip
@@ -596,7 +597,8 @@ export function compareLinksAndRender(): void {
  */
 export function renderLinkComparison(childLinks: ChildLink[]): void {
   const newDiscoveredLinks = getNewDiscoveredLinks();
-  if (elements.newLinksCount) elements.newLinksCount.textContent = String(newDiscoveredLinks.length);
+  if (elements.newLinksCount)
+    elements.newLinksCount.textContent = String(newDiscoveredLinks.length);
   if (elements.knownLinksCount) elements.knownLinksCount.textContent = String(childLinks.length);
 
   if (elements.newLinksList) {
@@ -696,17 +698,20 @@ export async function addNewLinksToPipeline(): Promise<void> {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({})) as { message?: string };
+      const errorData = (await response.json().catch(() => ({}))) as { message?: string };
       throw new Error(errorData.message || `HTTP ${response.status}`);
     }
 
-    const data = await response.json() as { created_count: number };
+    const data = (await response.json()) as { created_count: number };
     callbacks.showToast?.(`Added ${data.created_count} new links to pipeline`);
 
     await updateUrlStatus();
   } catch (error) {
     console.error('[EventAtlas] Error adding links:', error);
-    callbacks.showToast?.('Error adding links: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
+    callbacks.showToast?.(
+      'Error adding links: ' + (error instanceof Error ? error.message : 'Unknown error'),
+      'error'
+    );
   } finally {
     if (btn) {
       btn.disabled = false;

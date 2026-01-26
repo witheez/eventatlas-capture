@@ -6,7 +6,17 @@
  */
 import { render } from 'preact';
 import { signal } from '@preact/signals';
-import type { Bundle, Capture, EventListItem, QueueItem, MediaAsset, PendingScreenshot, Tag, EventType, Distance } from './components/types';
+import type {
+  Bundle,
+  Capture,
+  EventListItem,
+  QueueItem,
+  MediaAsset,
+  PendingScreenshot,
+  Tag,
+  EventType,
+  Distance,
+} from './components/types';
 
 // ============================================================================
 // Signals for reactive rendering
@@ -25,11 +35,13 @@ export const eventListLoadingSignal = signal(false);
 export const eventListEmptyMsgSignal = signal('No events match your filters');
 
 // Toast signal
-export const toastSignal = signal<{ message: string; type: 'success' | 'error'; visible: boolean }>({
-  message: '',
-  type: 'success',
-  visible: false,
-});
+export const toastSignal = signal<{ message: string; type: 'success' | 'error'; visible: boolean }>(
+  {
+    message: '',
+    type: 'success',
+    visible: false,
+  }
+);
 
 // Upload queue signal
 export const uploadQueueSignal = signal<QueueItem[]>([]);
@@ -139,7 +151,11 @@ interface PageItemComponentProps {
   index: number;
 }
 
-function PageItemComponent({ bundleId, capture, index }: PageItemComponentProps): preact.JSX.Element {
+function PageItemComponent({
+  bundleId,
+  capture,
+  index,
+}: PageItemComponentProps): preact.JSX.Element {
   const thumbUrl = capture.screenshot || capture.images?.[0] || capture.selectedImages?.[0];
   const title = capture.editedTitle || capture.title || 'Untitled';
   const domain = getDomain(capture.editedUrl || capture.url || '');
@@ -178,7 +194,17 @@ function PageItemComponent({ bundleId, capture, index }: PageItemComponentProps)
     >
       <span class="accordion-page-drag">{'\u22EE\u22EE'}</span>
       <div class="accordion-page-thumb">
-        {thumbUrl ? <img src={thumbUrl} alt="" onError={(e) => { (e.target as HTMLElement).parentElement!.textContent = '\u{1F4C4}'; }} /> : '\u{1F4C4}'}
+        {thumbUrl ? (
+          <img
+            src={thumbUrl}
+            alt=""
+            onError={(e) => {
+              (e.target as HTMLElement).parentElement!.textContent = '\u{1F4C4}';
+            }}
+          />
+        ) : (
+          '\u{1F4C4}'
+        )}
       </div>
       <div class="accordion-page-info">
         <div class="accordion-page-title">{title}</div>
@@ -187,7 +213,10 @@ function PageItemComponent({ bundleId, capture, index }: PageItemComponentProps)
       <button
         class="accordion-page-remove"
         title="Remove from bundle"
-        onClick={(e: MouseEvent) => { e.stopPropagation(); callbacks.onRemovePage(bundleId, index); }}
+        onClick={(e: MouseEvent) => {
+          e.stopPropagation();
+          callbacks.onRemovePage(bundleId, index);
+        }}
       >
         {'\u00D7'}
       </button>
@@ -235,13 +264,29 @@ function BundleItemComponent({ bundle }: BundleItemComponentProps): preact.JSX.E
         <span class="accordion-icon">{'\u{1F4C1}'}</span>
         <div class="accordion-info">
           <div class="accordion-name">{bundle.name || 'Unnamed Bundle'}</div>
-          <div class="accordion-meta">{pageCount} page{pageCount !== 1 ? 's' : ''}</div>
+          <div class="accordion-meta">
+            {pageCount} page{pageCount !== 1 ? 's' : ''}
+          </div>
         </div>
         <div class="accordion-actions">
-          <button class="accordion-action-btn" title="Copy bundle to clipboard" onClick={(e: MouseEvent) => { e.stopPropagation(); callbacks.onCopyBundle(bundle.id); }}>
+          <button
+            class="accordion-action-btn"
+            title="Copy bundle to clipboard"
+            onClick={(e: MouseEvent) => {
+              e.stopPropagation();
+              callbacks.onCopyBundle(bundle.id);
+            }}
+          >
             {'\u{1F4CB}'}
           </button>
-          <button class="accordion-action-btn delete" title="Delete bundle" onClick={(e: MouseEvent) => { e.stopPropagation(); callbacks.onDeleteBundle(bundle.id); }}>
+          <button
+            class="accordion-action-btn delete"
+            title="Delete bundle"
+            onClick={(e: MouseEvent) => {
+              e.stopPropagation();
+              callbacks.onDeleteBundle(bundle.id);
+            }}
+          >
             {'\u00D7'}
           </button>
         </div>
@@ -252,7 +297,12 @@ function BundleItemComponent({ bundle }: BundleItemComponentProps): preact.JSX.E
             <div class="accordion-empty">No pages in this bundle yet.</div>
           ) : (
             bundle.pages.map((capture, index) => (
-              <PageItemComponent key={`${bundle.id}-${index}`} bundleId={bundle.id} capture={capture} index={index} />
+              <PageItemComponent
+                key={`${bundle.id}-${index}`}
+                bundleId={bundle.id}
+                capture={capture}
+                index={index}
+              />
             ))
           )}
         </div>
@@ -299,7 +349,9 @@ function EventListItemComponent({ event }: EventListItemComponentProps): preact.
     callbacks.onCopyUrl(eventUrl);
     const btn = e.currentTarget as HTMLButtonElement;
     btn.textContent = '\u2713';
-    setTimeout(() => { btn.textContent = '\u{1F4CB}'; }, 1500);
+    setTimeout(() => {
+      btn.textContent = '\u{1F4CB}';
+    }, 1500);
   };
 
   return (
@@ -310,7 +362,9 @@ function EventListItemComponent({ event }: EventListItemComponentProps): preact.
       </div>
       <div class="event-list-item-url-row">
         <div class="event-list-item-url">{eventUrl}</div>
-        <button class="copy-url-btn" title="Copy URL" onClick={handleCopy}>{'\u{1F4CB}'}</button>
+        <button class="copy-url-btn" title="Copy URL" onClick={handleCopy}>
+          {'\u{1F4CB}'}
+        </button>
       </div>
       <div class="event-list-item-meta">
         {event.event_type && <span class="meta-badge meta-type">{event.event_type}</span>}
@@ -321,12 +375,18 @@ function EventListItemComponent({ event }: EventListItemComponentProps): preact.
           </>
         )}
         {event.distances && event.distances.length > 0 && (
-          <span class="meta-badge meta-distance">{event.distances.map(d => `${d}km`).join(', ')}</span>
+          <span class="meta-badge meta-distance">
+            {event.distances.map((d) => `${d}km`).join(', ')}
+          </span>
         )}
       </div>
       {event.missing && event.missing.length > 0 && (
         <div class="event-list-item-missing">
-          {event.missing.map((m, i) => <span key={i} class="missing-badge">{m}</span>)}
+          {event.missing.map((m, i) => (
+            <span key={i} class="missing-badge">
+              {m}
+            </span>
+          ))}
         </div>
       )}
     </div>
@@ -336,7 +396,7 @@ function EventListItemComponent({ event }: EventListItemComponentProps): preact.
 function EventListComponent(): preact.JSX.Element {
   const events = eventListSignal.value;
   const isLoading = eventListLoadingSignal.value;
-  const emptyMsg = eventListEmptyMsgSignal.value;
+  const _emptyMsg = eventListEmptyMsgSignal.value;
 
   if (isLoading) {
     return <div />;
@@ -376,16 +436,33 @@ function ImageGalleryComponent(): preact.JSX.Element {
       {images.map((url, index) => {
         const isSelected = selected.has(url);
         return (
-          <div key={index} class={`image-item${isSelected ? '' : ' excluded'}`} onClick={() => callbacks.onToggleImage(url)}>
-            <img src={url} alt={`Image ${index + 1}`} onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              // Hide failed image and show sibling error message
-              target.style.display = 'none';
-              const errorEl = target.parentElement?.querySelector('.image-item-error') as HTMLElement | null;
-              if (errorEl) errorEl.style.display = 'block';
-            }} />
-            <div class="image-item-error" style={{ display: 'none' }}>Error loading</div>
-            <input type="checkbox" class="image-checkbox" checked={isSelected} onChange={() => callbacks.onToggleImage(url)} />
+          <div
+            key={index}
+            class={`image-item${isSelected ? '' : ' excluded'}`}
+            onClick={() => callbacks.onToggleImage(url)}
+          >
+            <img
+              src={url}
+              alt={`Image ${index + 1}`}
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                // Hide failed image and show sibling error message
+                target.style.display = 'none';
+                const errorEl = target.parentElement?.querySelector(
+                  '.image-item-error'
+                ) as HTMLElement | null;
+                if (errorEl) errorEl.style.display = 'block';
+              }}
+            />
+            <div class="image-item-error" style={{ display: 'none' }}>
+              Error loading
+            </div>
+            <input
+              type="checkbox"
+              class="image-checkbox"
+              checked={isSelected}
+              onChange={() => callbacks.onToggleImage(url)}
+            />
           </div>
         );
       })}
@@ -430,7 +507,9 @@ function UploadQueueItemComponent({ item }: { item: QueueItem }): preact.JSX.Ele
           <circle class="progress-ring-bg" cx="12" cy="12" r="10" />
           <circle
             class="progress-ring-fill"
-            cx="12" cy="12" r="10"
+            cx="12"
+            cy="12"
+            r="10"
             stroke-dasharray={2 * Math.PI * 10}
             stroke-dashoffset={2 * Math.PI * 10 - (item.progress / 100) * 2 * Math.PI * 10}
           />
@@ -438,7 +517,9 @@ function UploadQueueItemComponent({ item }: { item: QueueItem }): preact.JSX.Ele
       )}
       <span class="check-icon">{'\u2714'}</span>
       {item.status === 'failed' && (
-        <button class="retry-btn" title="Retry" onClick={() => callbacks.onUploadRetry(item.id)}>{'\u21BB'}</button>
+        <button class="retry-btn" title="Retry" onClick={() => callbacks.onUploadRetry(item.id)}>
+          {'\u21BB'}
+        </button>
       )}
       <span class="event-label">{item.filename || 'Screenshot'}</span>
     </div>
@@ -538,12 +619,16 @@ function SelectedDistancesComponent(): preact.JSX.Element {
   return (
     <>
       {selectedValues.map((value) => {
-        const distObj = distances.find(d => d.value === value);
+        const distObj = distances.find((d) => d.value === value);
         const label = distObj ? distObj.label : `${value}K`;
         return (
           <span key={value} class="selected-distance-chip">
             {label}
-            <span class="selected-distance-remove" data-value={value} onClick={() => callbacks.onRemoveDistance(value)}>
+            <span
+              class="selected-distance-remove"
+              data-value={value}
+              onClick={() => callbacks.onRemoveDistance(value)}
+            >
               {'\u00D7'}
             </span>
           </span>
@@ -554,7 +639,9 @@ function SelectedDistancesComponent(): preact.JSX.Element {
 }
 
 function SavedScreenshotsComponent(): preact.JSX.Element {
-  const screenshots = savedScreenshotsSignal.value.filter(m => m.type === 'screenshot' || m.type === 'Screenshot');
+  const screenshots = savedScreenshotsSignal.value.filter(
+    (m) => m.type === 'screenshot' || m.type === 'Screenshot'
+  );
   const pending = pendingScreenshotsSignal.value;
   const uploading = uploadingScreenshotsSignal.value;
 
@@ -565,15 +652,44 @@ function SavedScreenshotsComponent(): preact.JSX.Element {
   return (
     <>
       {screenshots.map((item) => (
-        <div key={item.id} class="saved-screenshot-item" onClick={() => callbacks.onOpenScreenshotModal(item.file_url)}>
-          <img src={item.thumbnail_url || item.file_url} alt={item.name || 'Screenshot'} onError={(e) => {
-            const target = e.target as HTMLImageElement;
-            target.style.display = 'none';
-            const errorEl = target.parentElement?.querySelector('.screenshot-error') as HTMLElement | null;
-            if (errorEl) errorEl.style.display = 'flex';
-          }} />
-          <div class="screenshot-error" style={{ display: 'none', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#9ca3af', fontSize: '10px' }}>Failed</div>
-          <button class="screenshot-delete-btn" title="Delete screenshot" onClick={(e: MouseEvent) => { e.stopPropagation(); callbacks.onDeleteScreenshot(item.id); }}>
+        <div
+          key={item.id}
+          class="saved-screenshot-item"
+          onClick={() => callbacks.onOpenScreenshotModal(item.file_url)}
+        >
+          <img
+            src={item.thumbnail_url || item.file_url}
+            alt={item.name || 'Screenshot'}
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.style.display = 'none';
+              const errorEl = target.parentElement?.querySelector(
+                '.screenshot-error'
+              ) as HTMLElement | null;
+              if (errorEl) errorEl.style.display = 'flex';
+            }}
+          />
+          <div
+            class="screenshot-error"
+            style={{
+              display: 'none',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              color: '#9ca3af',
+              fontSize: '10px',
+            }}
+          >
+            Failed
+          </div>
+          <button
+            class="screenshot-delete-btn"
+            title="Delete screenshot"
+            onClick={(e: MouseEvent) => {
+              e.stopPropagation();
+              callbacks.onDeleteScreenshot(item.id);
+            }}
+          >
             {'\u00D7'}
           </button>
         </div>
@@ -581,7 +697,9 @@ function SavedScreenshotsComponent(): preact.JSX.Element {
       {uploading.map((item) => (
         <div key={item.id} class="saved-screenshot-item uploading" data-queue-id={item.id}>
           <img src={item.thumbnail} alt="Uploading..." />
-          <div class="upload-overlay"><span>{item.progress}%</span></div>
+          <div class="upload-overlay">
+            <span>{item.progress}%</span>
+          </div>
         </div>
       ))}
       {pending.length > 0 && (
@@ -595,7 +713,11 @@ function SavedScreenshotsComponent(): preact.JSX.Element {
               <div key={item.id} class="pending-screenshot-item">
                 <img src={item.data} alt="Pending screenshot" />
                 <span class="pending-badge">Pending</span>
-                <button class="pending-screenshot-remove" title="Remove" onClick={() => callbacks.onRemovePendingScreenshot(item.id)}>
+                <button
+                  class="pending-screenshot-remove"
+                  title="Remove"
+                  onClick={() => callbacks.onRemovePendingScreenshot(item.id)}
+                >
                   {'\u00D7'}
                 </button>
               </div>

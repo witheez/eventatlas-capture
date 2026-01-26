@@ -6,9 +6,9 @@
  * Uses accordion-style bundles with drag-and-drop between bundles.
  */
 
-import { formatBytes, getDomain, normalizeUrl, escapeRegex, escapeHtml, generateId, fixUrl } from './utils';
-import { syncWithApi, lookupUrl, testApiConnection, fetchTags, fetchEventTypes, fetchDistances } from './api';
-import type { Settings, Bundle, Capture, FilterState, DistancePreset } from './storage';
+import { formatBytes, getDomain, generateId, fixUrl } from './utils';
+import { syncWithApi, testApiConnection } from './api';
+import type { Bundle, Capture, DistancePreset } from './storage';
 import {
   saveToStorage as saveToStorageRaw,
   loadFromStorage as loadFromStorageRaw,
@@ -16,20 +16,7 @@ import {
   saveFilterState as saveFilterStateRaw,
   loadFilterState as loadFilterStateRaw,
 } from './storage';
-import {
-  initUploadQueue,
-  generateThumbnail,
-  addToUploadQueue,
-  uploadQueueItem,
-  updateQueueItemProgress,
-  markQueueItemComplete,
-  markQueueItemFailed,
-  retryQueueItem,
-  removeFromUploadQueue,
-  renderUploadQueue,
-  updateQueueItemUI,
-  clearUploadQueue,
-} from './upload-queue';
+import { initUploadQueue, addToUploadQueue } from './upload-queue';
 import { initEventEditor } from './event-editor';
 import type { EventEditorAPI, MatchedEvent, PendingScreenshot } from './event-editor';
 import { initCapture } from './capture';
@@ -49,26 +36,19 @@ import {
   getCurrentView,
   setCurrentView,
   getCurrentBundleId,
-  setCurrentBundleId,
   getCurrentBundle,
   getCurrentPageIndex,
   setCurrentPageIndex,
   getActiveTab,
   setActiveTab,
   // Detail view state
-  getSelectedImages,
-  setSelectedImages,
   getTextExpanded,
-  setTextExpanded,
   // Pending operations
   getPendingCapture,
   setPendingCapture,
-  getDraggedPage,
-  setDraggedPage,
   // Event list state
   getEventListCache,
   setEventListCache,
-  getEventListLastFetched,
   setEventListLastFetched,
   getEventListRefreshTimer,
   setEventListRefreshTimer,
@@ -92,17 +72,13 @@ import {
   getPendingScreenshots,
   setPendingScreenshots,
   // URL tracking
-  getLastKnownUrl,
   setLastKnownUrl,
-  getPendingUrlChange,
   setPendingUrlChange,
   // Types
   type EventListItem,
   type Tag,
   type EventType,
   type Distance,
-  type DraggedPage,
-  type PendingCaptureData,
 } from './store';
 
 // Import pure functions from event-list.js (no state dependencies)
@@ -113,7 +89,6 @@ import {
   formatDistances,
   formatEventDate,
   getFirstOfMonth,
-  getMonthLabel,
   buildStartsFromOptions,
   getStartsFromDate,
 } from './event-list';
@@ -122,11 +97,9 @@ import {
 import {
   initUrlStatus,
   updateSettings as updateUrlStatusSettings,
-  checkIfEventAtlasUrl,
   buildAdminEditUrl,
   updateTabInfo,
   updateUrlStatus,
-  hideLinkDiscoveryView,
   scanPageForLinks,
   addNewLinksToPipeline,
   toggleSelectAllNewLinks,
@@ -149,7 +122,7 @@ function clearChildren(element: HTMLElement): void {
 // Storage keys
 const STORAGE_KEY = 'eventatlas_capture_data';
 const OLD_STORAGE_KEY = 'eventatlas_capture_bundle'; // Legacy key for migration
-const SYNC_DATA_KEY = 'eventatlas_sync_data';
+const _SYNC_DATA_KEY = 'eventatlas_sync_data';
 const MAX_BUNDLE_PAGES = 20;
 const MAX_BUNDLES = 50;
 
@@ -162,12 +135,11 @@ async function saveToStorage(): Promise<void> {
 }
 
 async function loadFromStorage(): Promise<boolean> {
-  const result = await loadFromStorageRaw(
-    STORAGE_KEY,
-    OLD_STORAGE_KEY,
-    DEFAULT_SETTINGS,
-    { migrateOldDistancePresets, getDomain, generateId }
-  );
+  const result = await loadFromStorageRaw(STORAGE_KEY, OLD_STORAGE_KEY, DEFAULT_SETTINGS, {
+    migrateOldDistancePresets,
+    getDomain,
+    generateId,
+  });
   setBundles(result.bundles);
   setSettings(result.settings);
   if (result.migrated) {
@@ -176,7 +148,7 @@ async function loadFromStorage(): Promise<boolean> {
   return result.bundles.length > 0 || result.migrated;
 }
 
-async function clearAllStorage(): Promise<void> {
+async function _clearAllStorage(): Promise<void> {
   setBundles([]);
   await clearAllStorageRaw(STORAGE_KEY, getSettings());
 }
@@ -202,27 +174,39 @@ const eventListContainer = document.getElementById('eventListContainer') as HTML
 const eventListLoading = document.getElementById('eventListLoading') as HTMLElement | null;
 const eventListEmpty = document.getElementById('eventListEmpty') as HTMLElement | null;
 const filterMissingTags = document.getElementById('filterMissingTags') as HTMLInputElement | null;
-const filterMissingDistances = document.getElementById('filterMissingDistances') as HTMLInputElement | null;
+const filterMissingDistances = document.getElementById(
+  'filterMissingDistances'
+) as HTMLInputElement | null;
 const refreshEventListBtn = document.getElementById('refreshEventList') as HTMLButtonElement | null;
 
 // DOM Elements - Event List Settings
-const autoSwitchTabSetting = document.getElementById('autoSwitchTabSetting') as HTMLInputElement | null;
-const eventListRefreshIntervalSetting = document.getElementById('eventListRefreshInterval') as HTMLSelectElement | null;
+const autoSwitchTabSetting = document.getElementById(
+  'autoSwitchTabSetting'
+) as HTMLInputElement | null;
+const eventListRefreshIntervalSetting = document.getElementById(
+  'eventListRefreshInterval'
+) as HTMLSelectElement | null;
 
 // DOM Elements - Settings
 const settingsBtn = document.getElementById('settingsBtn') as HTMLButtonElement;
 const refreshBtn = document.getElementById('refreshBtn') as HTMLElement;
 const settingsPanel = document.getElementById('settingsPanel') as HTMLElement;
 const autoGroupSetting = document.getElementById('autoGroupSetting') as HTMLInputElement;
-const screenshotDefaultSetting = document.getElementById('screenshotDefaultSetting') as HTMLInputElement;
+const screenshotDefaultSetting = document.getElementById(
+  'screenshotDefaultSetting'
+) as HTMLInputElement;
 
 // DOM Elements - API Settings
 const apiUrlSetting = document.getElementById('apiUrlSetting') as HTMLInputElement;
 const apiTokenSetting = document.getElementById('apiTokenSetting') as HTMLInputElement;
 const toggleTokenVisibility = document.getElementById('toggleTokenVisibility') as HTMLButtonElement;
 const syncModeSetting = document.getElementById('syncModeSetting') as HTMLSelectElement;
-const customDistancePresetsSetting = document.getElementById('customDistancePresets') as HTMLInputElement;
-const distancePresetToggles = document.getElementById('distancePresetToggles') as HTMLElement | null;
+const customDistancePresetsSetting = document.getElementById(
+  'customDistancePresets'
+) as HTMLInputElement;
+const distancePresetToggles = document.getElementById(
+  'distancePresetToggles'
+) as HTMLElement | null;
 const saveSettingsBtn = document.getElementById('saveSettingsBtn') as HTMLButtonElement;
 const testConnectionBtn = document.getElementById('testConnectionBtn') as HTMLButtonElement;
 const connectionStatus = document.getElementById('connectionStatus') as HTMLElement;
@@ -232,8 +216,12 @@ const pageTitleEl = document.getElementById('pageTitle') as HTMLElement;
 const pageUrlEl = document.getElementById('pageUrl') as HTMLElement;
 const captureBtn = document.getElementById('captureBtn') as HTMLButtonElement;
 const captureBtnGroup = document.getElementById('captureBtnGroup') as HTMLElement;
-const captureNoScreenshotBtn = document.getElementById('captureNoScreenshotBtn') as HTMLButtonElement;
-const captureWithScreenshotBtn = document.getElementById('captureWithScreenshotBtn') as HTMLButtonElement;
+const captureNoScreenshotBtn = document.getElementById(
+  'captureNoScreenshotBtn'
+) as HTMLButtonElement;
+const captureWithScreenshotBtn = document.getElementById(
+  'captureWithScreenshotBtn'
+) as HTMLButtonElement;
 const captureBadge = document.getElementById('captureBadge') as HTMLElement;
 const bundlesList = document.getElementById('bundlesList') as HTMLElement;
 const bundlesCount = document.getElementById('bundlesCount') as HTMLElement;
@@ -250,15 +238,15 @@ const duplicateReplace = document.getElementById('duplicateReplace') as HTMLButt
 const duplicateSkip = document.getElementById('duplicateSkip') as HTMLButtonElement;
 
 // DOM Elements - Detail view
-const previewEl = document.getElementById('preview') as HTMLElement;
+const _previewEl = document.getElementById('preview') as HTMLElement;
 const htmlSizeStat = document.getElementById('htmlSizeStat') as HTMLElement;
 const textSizeStat = document.getElementById('textSizeStat') as HTMLElement;
 const imageSizeStat = document.getElementById('imageSizeStat') as HTMLElement;
 const editTitle = document.getElementById('editTitle') as HTMLInputElement;
 const editUrl = document.getElementById('editUrl') as HTMLInputElement;
-const screenshotSection = document.getElementById('screenshotSection') as HTMLElement;
+const _screenshotSection = document.getElementById('screenshotSection') as HTMLElement;
 const screenshotBadge = document.getElementById('screenshotBadge') as HTMLElement;
-const screenshotContainer = document.getElementById('screenshotContainer') as HTMLElement;
+const _screenshotContainer = document.getElementById('screenshotContainer') as HTMLElement;
 const screenshotPlaceholder = document.getElementById('screenshotPlaceholder') as HTMLElement;
 const screenshotThumb = document.getElementById('screenshotThumb') as HTMLImageElement;
 const screenshotModal = document.getElementById('screenshotModal') as HTMLElement;
@@ -286,8 +274,8 @@ const toastEl = document.getElementById('toast') as HTMLElement;
 const headerTitle = document.getElementById('headerTitle') as HTMLElement | null;
 
 // DOM Elements - URL Status (legacy, kept for compatibility)
-const urlStatusContainer = document.getElementById('urlStatusContainer') as HTMLElement | null;
-const urlStatusBadge = document.getElementById('urlStatusBadge') as HTMLElement | null;
+const _urlStatusContainer = document.getElementById('urlStatusContainer') as HTMLElement | null;
+const _urlStatusBadge = document.getElementById('urlStatusBadge') as HTMLElement | null;
 const urlStatusDetails = document.getElementById('urlStatusDetails') as HTMLElement | null;
 
 // DOM Elements - Combined Page Info
@@ -299,7 +287,7 @@ const pageInfoBadgeText = document.getElementById('pageInfoBadgeText') as HTMLEl
 const statusViewLink = document.getElementById('statusViewLink') as HTMLAnchorElement | null;
 const pageInfoDetails = document.getElementById('pageInfoDetails') as HTMLElement | null;
 const pageInfoEventName = document.getElementById('pageInfoEventName') as HTMLElement | null;
-const pageInfoAdminLink = document.getElementById('pageInfoAdminLink') as HTMLAnchorElement | null;
+const _pageInfoAdminLink = document.getElementById('pageInfoAdminLink') as HTMLAnchorElement | null;
 
 // DOM Elements - Bundle Section (for conditional visibility)
 const captureButtons = document.getElementById('captureButtons') as HTMLElement | null;
@@ -311,7 +299,9 @@ const discoverySourceName = document.getElementById('discoverySourceName') as HT
 const discoveryApiBadge = document.getElementById('discoveryApiBadge') as HTMLElement | null;
 const discoveryLastScraped = document.getElementById('discoveryLastScraped') as HTMLElement | null;
 const scanPageLinksBtn = document.getElementById('scanPageLinks') as HTMLButtonElement | null;
-const linkComparisonResults = document.getElementById('linkComparisonResults') as HTMLElement | null;
+const linkComparisonResults = document.getElementById(
+  'linkComparisonResults'
+) as HTMLElement | null;
 const newLinksCount = document.getElementById('newLinksCount') as HTMLElement | null;
 const knownLinksCount = document.getElementById('knownLinksCount') as HTMLElement | null;
 const newLinksList = document.getElementById('newLinksList') as HTMLElement | null;
@@ -321,39 +311,51 @@ const addNewLinksBtn = document.getElementById('addNewLinksBtn') as HTMLButtonEl
 const selectedLinksCountEl = document.getElementById('selectedLinksCount') as HTMLElement | null;
 
 // DOM Elements - Event Editor
-const eventEditor = document.getElementById('eventEditor') as HTMLElement | null;
-const eventEditorAccordionHeader = document.getElementById('eventEditorAccordionHeader') as HTMLElement | null;
-const eventEditorChevron = document.getElementById('eventEditorChevron') as HTMLElement | null;
-const eventEditorContent = document.getElementById('eventEditorContent') as HTMLElement | null;
-const editorEventName = document.getElementById('editorEventName') as HTMLElement | null;
-const editorPageTitle = document.getElementById('editorPageTitle') as HTMLElement | null;
-const editorPageUrl = document.getElementById('editorPageUrl') as HTMLElement | null;
-const editorBadge = document.getElementById('editorBadge') as HTMLElement | null;
-const editorViewLink = document.getElementById('editorViewLink') as HTMLAnchorElement | null;
-const editorLoading = document.getElementById('editorLoading') as HTMLElement | null;
-const editorContent = document.getElementById('editorContent') as HTMLElement | null;
-const editorEventTypes = document.getElementById('editorEventTypes') as HTMLElement | null;
-const editorTags = document.getElementById('editorTags') as HTMLElement | null;
-const editorDistances = document.getElementById('editorDistances') as HTMLElement | null;
-const customDistanceInput = document.getElementById('customDistanceInput') as HTMLInputElement | null;
-const addCustomDistanceBtn = document.getElementById('addCustomDistanceBtn') as HTMLButtonElement | null;
-const selectedDistancesEl = document.getElementById('selectedDistances') as HTMLElement | null;
-const editorNotes = document.getElementById('editorNotes') as HTMLTextAreaElement | null;
-const editorSaveBtn = document.getElementById('editorSaveBtn') as HTMLButtonElement | null;
-const captureEventScreenshotBtn = document.getElementById('captureEventScreenshotBtn') as HTMLButtonElement | null;
-const captureEventHtmlBtn = document.getElementById('captureEventHtmlBtn') as HTMLButtonElement | null;
-const savedScreenshotsEl = document.getElementById('savedScreenshots') as HTMLElement | null;
+const _eventEditor = document.getElementById('eventEditor') as HTMLElement | null;
+const _eventEditorAccordionHeader = document.getElementById(
+  'eventEditorAccordionHeader'
+) as HTMLElement | null;
+const _eventEditorChevron = document.getElementById('eventEditorChevron') as HTMLElement | null;
+const _eventEditorContent = document.getElementById('eventEditorContent') as HTMLElement | null;
+const _editorEventName = document.getElementById('editorEventName') as HTMLElement | null;
+const _editorPageTitle = document.getElementById('editorPageTitle') as HTMLElement | null;
+const _editorPageUrl = document.getElementById('editorPageUrl') as HTMLElement | null;
+const _editorBadge = document.getElementById('editorBadge') as HTMLElement | null;
+const _editorViewLink = document.getElementById('editorViewLink') as HTMLAnchorElement | null;
+const _editorLoading = document.getElementById('editorLoading') as HTMLElement | null;
+const _editorContent = document.getElementById('editorContent') as HTMLElement | null;
+const _editorEventTypes = document.getElementById('editorEventTypes') as HTMLElement | null;
+const _editorTags = document.getElementById('editorTags') as HTMLElement | null;
+const _editorDistances = document.getElementById('editorDistances') as HTMLElement | null;
+const _customDistanceInput = document.getElementById(
+  'customDistanceInput'
+) as HTMLInputElement | null;
+const _addCustomDistanceBtn = document.getElementById(
+  'addCustomDistanceBtn'
+) as HTMLButtonElement | null;
+const _selectedDistancesEl = document.getElementById('selectedDistances') as HTMLElement | null;
+const _editorNotes = document.getElementById('editorNotes') as HTMLTextAreaElement | null;
+const _editorSaveBtn = document.getElementById('editorSaveBtn') as HTMLButtonElement | null;
+const captureEventScreenshotBtn = document.getElementById(
+  'captureEventScreenshotBtn'
+) as HTMLButtonElement | null;
+const captureEventHtmlBtn = document.getElementById(
+  'captureEventHtmlBtn'
+) as HTMLButtonElement | null;
+const _savedScreenshotsEl = document.getElementById('savedScreenshots') as HTMLElement | null;
 
 // Module instances (initialized in init())
 let eventEditorModule: EventEditorAPI | null = null;
-let captureModule: ReturnType<typeof initCapture> | null = null;
+const _captureModule: ReturnType<typeof initCapture> | null = null;
 
 // DOM Elements - Screenshot Upload Timing Setting
-const screenshotUploadTimingSetting = document.getElementById('screenshotUploadTiming') as HTMLSelectElement;
+const screenshotUploadTimingSetting = document.getElementById(
+  'screenshotUploadTiming'
+) as HTMLSelectElement;
 
 // DOM Elements - Unsaved Changes Dialog
-const unsavedDialog = document.getElementById('unsavedDialog') as HTMLElement;
-const unsavedDialogText = document.getElementById('unsavedDialogText') as HTMLElement;
+const _unsavedDialog = document.getElementById('unsavedDialog') as HTMLElement;
+const _unsavedDialogText = document.getElementById('unsavedDialogText') as HTMLElement;
 const unsavedSaveBtn = document.getElementById('unsavedSaveBtn') as HTMLButtonElement;
 const unsavedDiscardBtn = document.getElementById('unsavedDiscardBtn') as HTMLButtonElement;
 const unsavedCancelBtn = document.getElementById('unsavedCancelBtn') as HTMLButtonElement;
@@ -738,7 +740,11 @@ function setupBundleDropZone(bundleElement: HTMLElement, bundleId: string): void
 /**
  * Move a page from one bundle to another
  */
-async function movePageBetweenBundles(sourceBundleId: string, pageIndex: number, targetBundleId: string): Promise<void> {
+async function movePageBetweenBundles(
+  sourceBundleId: string,
+  pageIndex: number,
+  targetBundleId: string
+): Promise<void> {
   const sourceBundle = getBundleById(sourceBundleId);
   const targetBundle = getBundleById(targetBundleId);
 
@@ -833,7 +839,9 @@ function renderDetailPreview(capture: Capture): void {
   const fullText = capture.text || '';
   const previewText = fullText.substring(0, 500);
   const isTextExpanded = getTextExpanded();
-  textPreview.textContent = isTextExpanded ? fullText : previewText + (fullText.length > 500 ? '...' : '');
+  textPreview.textContent = isTextExpanded
+    ? fullText
+    : previewText + (fullText.length > 500 ? '...' : '');
   textCharCount.textContent = `${fullText.length.toLocaleString()} chars`;
   textToggle.style.display = fullText.length > 500 ? 'block' : 'none';
   textToggle.textContent = isTextExpanded ? 'Show less' : 'Show more';
@@ -1093,7 +1101,10 @@ async function copyBundleToClipboard(bundleId: string): Promise<void> {
   try {
     const json = JSON.stringify(exportBundle, null, 2);
     await navigator.clipboard.writeText(json);
-    showToast(`Copied ${bundle.pages.length} page${bundle.pages.length !== 1 ? 's' : ''} to clipboard!`, 'success');
+    showToast(
+      `Copied ${bundle.pages.length} page${bundle.pages.length !== 1 ? 's' : ''} to clipboard!`,
+      'success'
+    );
   } catch (err) {
     console.error('Copy bundle failed:', err);
     showToast('Failed to copy bundle', 'error');
@@ -1116,7 +1127,12 @@ async function removePageFromBundle(bundleId: string, index: number): Promise<vo
   // If we're viewing the removed item in detail view, go back to bundles
   if (getCurrentView() === 'detail' && currentBundleId === bundleId && currentPageIndex === index) {
     switchView('bundles');
-  } else if (getCurrentView() === 'detail' && currentBundleId === bundleId && currentPageIndex !== null && currentPageIndex > index) {
+  } else if (
+    getCurrentView() === 'detail' &&
+    currentBundleId === bundleId &&
+    currentPageIndex !== null &&
+    currentPageIndex > index
+  ) {
     // Adjust index if we removed something before current view
     setCurrentPageIndex(currentPageIndex - 1);
   }
@@ -1218,7 +1234,11 @@ function createBundle(name?: string): Bundle | null {
 /**
  * Add capture to a specific bundle
  */
-async function addCaptureToBundle(bundleId: string, capture: Capture, replaceIndex: number = -1): Promise<boolean> {
+async function addCaptureToBundle(
+  bundleId: string,
+  capture: Capture,
+  replaceIndex: number = -1
+): Promise<boolean> {
   const bundle = getBundleById(bundleId);
   if (!bundle) return false;
 
@@ -1270,10 +1290,10 @@ function isConnectionError(error: unknown): boolean {
  */
 async function captureScreenshot(windowId: number): Promise<string | null> {
   try {
-    const response = await chrome.runtime.sendMessage({
+    const response = (await chrome.runtime.sendMessage({
       action: 'captureScreenshot',
       windowId: windowId,
-    }) as { error?: string; screenshot?: string };
+    })) as { error?: string; screenshot?: string };
 
     if (response.error) {
       console.warn('[EventAtlas Capture] Screenshot capture failed:', response.error);
@@ -1305,7 +1325,9 @@ function setCaptureButtonsState(disabled: boolean, text: string): void {
   iconSpan.className = 'capture-btn-icon';
   iconSpan.textContent = '\u{1F4C4}';
   captureNoScreenshotBtn.appendChild(iconSpan);
-  captureNoScreenshotBtn.appendChild(doc.createTextNode(' ' + (text !== 'Capture Page' ? text : 'Capture Page')));
+  captureNoScreenshotBtn.appendChild(
+    doc.createTextNode(' ' + (text !== 'Capture Page' ? text : 'Capture Page'))
+  );
 }
 
 /**
@@ -1344,7 +1366,9 @@ async function capturePage(includeScreenshot: boolean = true): Promise<void> {
     }
 
     // Send message to content script for page content
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'capture' }) as Capture & { error?: string };
+    const response = (await chrome.tabs.sendMessage(tab.id, { action: 'capture' })) as Capture & {
+      error?: string;
+    };
 
     // Capture screenshot if requested
     if (includeScreenshot && tab.windowId) {
@@ -1402,7 +1426,10 @@ async function capturePage(includeScreenshot: boolean = true): Promise<void> {
       setCaptureButtonsState(true, 'Added!');
       setCaptureButtonsClass('success', true);
       const totalPages = getBundles().reduce((sum, b) => sum + (b.pages?.length || 0), 0);
-      showToast(`Added to "${targetBundle.name}" (${totalPages} total page${totalPages !== 1 ? 's' : ''})`, 'success');
+      showToast(
+        `Added to "${targetBundle.name}" (${totalPages} total page${totalPages !== 1 ? 's' : ''})`,
+        'success'
+      );
 
       setTimeout(() => {
         setCaptureButtonsState(false, 'Capture Page');
@@ -1725,7 +1752,9 @@ testConnectionBtn.addEventListener('click', async () => {
   const result = await testApiConnection(apiUrl, apiToken);
 
   connectionStatus.textContent = result.message;
-  connectionStatus.className = result.success ? 'connection-status success' : 'connection-status error';
+  connectionStatus.className = result.success
+    ? 'connection-status success'
+    : 'connection-status error';
   testConnectionBtn.disabled = false;
 });
 
@@ -1786,7 +1815,9 @@ textToggle.addEventListener('click', () => {
 
   textExpanded = !textExpanded;
   const fullText = bundle.pages[currentPageIndex].text || '';
-  textPreview.textContent = textExpanded ? fullText : fullText.substring(0, 500) + (fullText.length > 500 ? '...' : '');
+  textPreview.textContent = textExpanded
+    ? fullText
+    : fullText.substring(0, 500) + (fullText.length > 500 ? '...' : '');
   textToggle.textContent = textExpanded ? 'Show less' : 'Show more';
   textPreview.classList.toggle('expanded', textExpanded);
 });
@@ -1917,7 +1948,7 @@ async function fetchEventList(): Promise<void> {
 
     if (!response.ok) throw new Error('Failed to fetch event list');
 
-    const data = await response.json() as { events?: EventListItem[] };
+    const data = (await response.json()) as { events?: EventListItem[] };
     setEventListCache(data.events || []);
     setEventListLastFetched(Date.now());
 
@@ -2011,7 +2042,9 @@ function renderEventList(): void {
       e.stopPropagation();
       navigator.clipboard.writeText(eventUrl).then(() => {
         copyBtnEl.textContent = '\u2713';
-        setTimeout(() => { copyBtnEl.textContent = '\u{1F4CB}'; }, 1500);
+        setTimeout(() => {
+          copyBtnEl.textContent = '\u{1F4CB}';
+        }, 1500);
       });
     });
 
@@ -2033,7 +2066,7 @@ function updateStartsFromDropdown(): void {
 
   const options = buildStartsFromOptions();
   clearChildren(dropdown);
-  options.forEach(opt => {
+  options.forEach((opt) => {
     const optionEl = createElement('option');
     optionEl.value = opt.value;
     optionEl.textContent = opt.label;
@@ -2134,7 +2167,9 @@ function setupEventListRefresh(): void {
 // Event Listeners - Tab Navigation
 if (tabNavigation) {
   tabNavigation.querySelectorAll('.tab-btn').forEach((btn) => {
-    btn.addEventListener('click', () => switchMainTab((btn as HTMLElement).dataset.tab as 'current' | 'event-list'));
+    btn.addEventListener('click', () =>
+      switchMainTab((btn as HTMLElement).dataset.tab as 'current' | 'event-list')
+    );
   });
 }
 
@@ -2352,7 +2387,7 @@ function mergeDistancesWithPresets(globalDistances: Distance[]): Distance[] {
   const defaultValues = [5, 10, 21, 42, 50, 100, 161];
 
   // Start with copy of global distances, filtering out disabled defaults
-  let distances = globalDistances.filter(d => {
+  const distances = globalDistances.filter((d) => {
     // If it's a default distance, check if it's enabled
     if (defaultValues.includes(d.value)) {
       return defaults[d.value] !== false; // true or undefined = enabled
@@ -2362,7 +2397,7 @@ function mergeDistancesWithPresets(globalDistances: Distance[]): Distance[] {
   });
 
   // Get set of existing values to avoid duplicates when adding
-  const existingValues = new Set(distances.map(d => d.value));
+  const existingValues = new Set(distances.map((d) => d.value));
 
   // Add custom distances that don't already exist
   for (const value of customDistances) {
@@ -2549,14 +2584,16 @@ async function captureAndUploadEventScreenshot(): Promise<void> {
       captureEventScreenshotBtn.classList.remove('success');
       captureEventScreenshotBtn.disabled = false;
     }, 1000);
-
   } catch (error) {
     console.error('[EventAtlas] Error capturing screenshot:', error);
     if (captureEventScreenshotBtn) {
       setCaptureEventScreenshotBtnContent('\u{1F4F7}', 'Screenshot');
       captureEventScreenshotBtn.disabled = false;
     }
-    showToast((error instanceof Error ? error.message : null) || 'Failed to capture screenshot', 'error');
+    showToast(
+      (error instanceof Error ? error.message : null) || 'Failed to capture screenshot',
+      'error'
+    );
   }
 }
 
@@ -2642,7 +2679,9 @@ async function init(): Promise<void> {
   eventEditorModule = initEventEditor({
     elements: {
       eventEditor: document.getElementById('eventEditor') as HTMLElement,
-      eventEditorAccordionHeader: document.getElementById('eventEditorAccordionHeader') as HTMLElement,
+      eventEditorAccordionHeader: document.getElementById(
+        'eventEditorAccordionHeader'
+      ) as HTMLElement,
       eventEditorChevron: document.getElementById('eventEditorChevron') as HTMLElement,
       eventEditorContent: document.getElementById('eventEditorContent') as HTMLElement,
       editorEventName: document.getElementById('editorEventName') as HTMLElement,
@@ -2660,7 +2699,9 @@ async function init(): Promise<void> {
       selectedDistancesEl: document.getElementById('selectedDistances') as HTMLElement,
       editorNotes: document.getElementById('editorNotes') as HTMLTextAreaElement,
       editorSaveBtn: document.getElementById('editorSaveBtn') as HTMLButtonElement,
-      captureEventScreenshotBtn: document.getElementById('captureEventScreenshotBtn') as HTMLButtonElement,
+      captureEventScreenshotBtn: document.getElementById(
+        'captureEventScreenshotBtn'
+      ) as HTMLButtonElement,
       captureEventHtmlBtn: document.getElementById('captureEventHtmlBtn') as HTMLButtonElement,
       savedScreenshotsEl: document.getElementById('savedScreenshots') as HTMLElement,
       pageTitleEl: document.getElementById('pageTitle') as HTMLElement,
@@ -2685,26 +2726,33 @@ async function init(): Promise<void> {
       pendingUrlChange: getPendingUrlChange(),
       uploadQueue: [],
     }),
-    setState: (updates: Partial<{
-      currentMatchedEvent: MatchedEvent | null;
-      availableTags: Tag[];
-      availableEventTypes: EventType[];
-      availableDistances: Distance[];
-      selectedEventTypeId: number | null;
-      selectedTagIds: Set<number>;
-      selectedDistanceValues: number[];
-      eventEditorExpanded: boolean;
-      pendingScreenshots: PendingScreenshot[];
-      pendingUrlChange: string | null;
-    }>) => {
-      if ('currentMatchedEvent' in updates) setCurrentMatchedEvent(updates.currentMatchedEvent ?? null);
+    setState: (
+      updates: Partial<{
+        currentMatchedEvent: MatchedEvent | null;
+        availableTags: Tag[];
+        availableEventTypes: EventType[];
+        availableDistances: Distance[];
+        selectedEventTypeId: number | null;
+        selectedTagIds: Set<number>;
+        selectedDistanceValues: number[];
+        eventEditorExpanded: boolean;
+        pendingScreenshots: PendingScreenshot[];
+        pendingUrlChange: string | null;
+      }>
+    ) => {
+      if ('currentMatchedEvent' in updates)
+        setCurrentMatchedEvent(updates.currentMatchedEvent ?? null);
       if ('availableTags' in updates) setAvailableTags(updates.availableTags ?? []);
-      if ('availableEventTypes' in updates) setAvailableEventTypes(updates.availableEventTypes ?? []);
+      if ('availableEventTypes' in updates)
+        setAvailableEventTypes(updates.availableEventTypes ?? []);
       if ('availableDistances' in updates) setAvailableDistances(updates.availableDistances ?? []);
-      if ('selectedEventTypeId' in updates) setSelectedEventTypeId(updates.selectedEventTypeId ?? null);
+      if ('selectedEventTypeId' in updates)
+        setSelectedEventTypeId(updates.selectedEventTypeId ?? null);
       if ('selectedTagIds' in updates) setSelectedTagIds(updates.selectedTagIds ?? new Set());
-      if ('selectedDistanceValues' in updates) setSelectedDistanceValues(updates.selectedDistanceValues ?? []);
-      if ('eventEditorExpanded' in updates) setEventEditorExpanded(updates.eventEditorExpanded ?? true);
+      if ('selectedDistanceValues' in updates)
+        setSelectedDistanceValues(updates.selectedDistanceValues ?? []);
+      if ('eventEditorExpanded' in updates)
+        setEventEditorExpanded(updates.eventEditorExpanded ?? true);
       if ('pendingScreenshots' in updates) setPendingScreenshots(updates.pendingScreenshots ?? []);
       if ('pendingUrlChange' in updates) setPendingUrlChange(updates.pendingUrlChange ?? null);
     },
@@ -2809,7 +2857,8 @@ async function init(): Promise<void> {
 
   // Apply Event List settings to UI
   if (autoSwitchTabSetting) autoSwitchTabSetting.checked = settings.autoSwitchTab !== false;
-  if (eventListRefreshIntervalSetting) eventListRefreshIntervalSetting.value = String(settings.eventListRefreshInterval || 0);
+  if (eventListRefreshIntervalSetting)
+    eventListRefreshIntervalSetting.value = String(settings.eventListRefreshInterval || 0);
 
   // Apply filter state to UI
   const filterState = getFilterState();
@@ -2825,9 +2874,18 @@ async function init(): Promise<void> {
   updateStartsFromDropdown();
 
   // Show custom date input if a custom date is set
-  const customDateContainerInit = document.getElementById('customDateContainer') as HTMLElement | null;
-  const customDateInputInit = document.getElementById('filterCustomDate') as HTMLInputElement | null;
-  if (filterState.startsFrom && !['this_month', 'next_month', '2_months', '3_months', '6_months'].includes(filterState.startsFrom)) {
+  const customDateContainerInit = document.getElementById(
+    'customDateContainer'
+  ) as HTMLElement | null;
+  const customDateInputInit = document.getElementById(
+    'filterCustomDate'
+  ) as HTMLInputElement | null;
+  if (
+    filterState.startsFrom &&
+    !['this_month', 'next_month', '2_months', '3_months', '6_months'].includes(
+      filterState.startsFrom
+    )
+  ) {
     if (customDateContainerInit) customDateContainerInit.style.display = 'block';
     if (customDateInputInit) customDateInputInit.value = filterState.startsFrom;
   }

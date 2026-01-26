@@ -1,7 +1,6 @@
 /**
  * Event list view component
  */
-import { useCallback } from 'preact/hooks';
 import type { EventListItem } from './types';
 import { EventListItemComponent } from './EventListItem';
 

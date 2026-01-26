@@ -97,6 +97,46 @@ eventatlas-capture/
 | `npm run build` | Build for production |
 | `npm run build:firefox` | Build for Firefox |
 | `npm run zip` | Create distribution zip |
+| `npm run test` | Run tests |
+| `npm run test:watch` | Run tests in watch mode |
+| `npm run test:coverage` | Run tests with coverage report |
+| `npm run lint` | Run ESLint |
+| `npm run lint:fix` | Run ESLint with auto-fix |
+| `npm run format` | Format code with Prettier |
+| `npm run format:check` | Check code formatting |
+
+## Testing
+
+Run the test suite:
+
+```bash
+# Run all tests
+npm run test
+
+# Run tests in watch mode during development
+npm run test:watch
+
+# Run tests with coverage report
+npm run test:coverage
+```
+
+## Code Quality
+
+This project uses ESLint and Prettier for code quality and formatting. Pre-commit hooks are configured with Husky and lint-staged to automatically lint and format staged files.
+
+```bash
+# Run linter
+npm run lint
+
+# Run linter with auto-fix
+npm run lint:fix
+
+# Format code
+npm run format
+
+# Check formatting without modifying files
+npm run format:check
+```
 
 ## Notes
 

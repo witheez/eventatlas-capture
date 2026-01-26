@@ -1,8 +1,16 @@
 /**
  * Tests for entrypoints/sidepanel/utils.ts
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { formatBytes, escapeRegex, escapeHtml, generateId, normalizeUrl, getDomain, fixUrl } from './utils';
+import { describe, it, expect } from 'vitest';
+import {
+  formatBytes,
+  escapeRegex,
+  escapeHtml,
+  generateId,
+  normalizeUrl,
+  getDomain,
+  fixUrl,
+} from './utils';
 
 describe('formatBytes', () => {
   it('should return "0 B" for 0 bytes', () => {
@@ -114,7 +122,9 @@ describe('escapeHtml', () => {
   });
 
   it('should handle script tags', () => {
-    expect(escapeHtml('<script>alert("xss")</script>')).toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
+    expect(escapeHtml('<script>alert("xss")</script>')).toBe(
+      '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'
+    );
   });
 });
 
