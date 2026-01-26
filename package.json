@@ -9,11 +9,17 @@
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
-    "zip:firefox": "wxt zip -b firefox"
+    "zip:firefox": "wxt zip -b firefox",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.18",
     "chrome-types": "^0.1.414",
+    "jsdom": "^27.4.0",
     "typescript": "^5.9.3",
+    "vitest": "^4.0.18",
     "wxt": "^0.20.0"
   }
 }
