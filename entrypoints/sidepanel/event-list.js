@@ -6,6 +6,7 @@
  */
 
 import { escapeHtml, fixUrl } from './utils.js';
+import { normalizeBaseUrl } from './api.js';
 
 // ========================================
 // Pure Functions (no dependencies)
@@ -213,7 +214,7 @@ export function initEventList(deps) {
         params.append('starts_from', startsFromDate);
       }
 
-      const response = await fetch(`${settings.apiUrl}/api/extension/event-list?${params}`, {
+      const response = await fetch(`${normalizeBaseUrl(settings.apiUrl)}/api/extension/event-list?${params}`, {
         headers: {
           Authorization: `Bearer ${settings.apiToken}`,
           Accept: 'application/json',
@@ -348,7 +349,7 @@ export function initEventList(deps) {
     // Mark as visited if we have the link ID
     if (event.primary_link_id && settings.apiUrl && settings.apiToken) {
       try {
-        await fetch(`${settings.apiUrl}/api/extension/event-list/mark-visited`, {
+        await fetch(`${normalizeBaseUrl(settings.apiUrl)}/api/extension/event-list/mark-visited`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${settings.apiToken}`,

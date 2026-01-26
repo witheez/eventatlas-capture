@@ -6,7 +6,7 @@
  */
 
 import { generateId } from './utils.js';
-import { fetchTags, fetchEventTypes, fetchDistances } from './api.js';
+import { fetchTags, fetchEventTypes, fetchDistances, normalizeBaseUrl } from './api.js';
 
 /**
  * Initialize the event editor module with dependencies
@@ -215,7 +215,7 @@ export function initEventEditor(deps) {
     }
 
     try {
-      const response = await fetch(`${settings.apiUrl}/api/extension/tags`, {
+      const response = await fetch(`${normalizeBaseUrl(settings.apiUrl)}/api/extension/tags`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${settings.apiToken}`,
@@ -600,7 +600,7 @@ export function initEventEditor(deps) {
 
     try {
       const response = await fetch(
-        `${settings.apiUrl}/api/extension/events/${state.currentMatchedEvent.id}/screenshot/${mediaId}`,
+        `${normalizeBaseUrl(settings.apiUrl)}/api/extension/events/${state.currentMatchedEvent.id}/screenshot/${mediaId}`,
         {
           method: 'DELETE',
           headers: {
@@ -679,7 +679,7 @@ export function initEventEditor(deps) {
     try {
       for (const pending of state.pendingScreenshots) {
         const response = await fetch(
-          `${settings.apiUrl}/api/extension/events/${state.currentMatchedEvent.id}/screenshot`,
+          `${normalizeBaseUrl(settings.apiUrl)}/api/extension/events/${state.currentMatchedEvent.id}/screenshot`,
           {
             method: 'POST',
             headers: {
@@ -1004,7 +1004,7 @@ export function initEventEditor(deps) {
         notes: editorNotes.value || null,
       };
 
-      const response = await fetch(`${settings.apiUrl}/api/extension/events/${state.currentMatchedEvent.id}`, {
+      const response = await fetch(`${normalizeBaseUrl(settings.apiUrl)}/api/extension/events/${state.currentMatchedEvent.id}`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${settings.apiToken}`,

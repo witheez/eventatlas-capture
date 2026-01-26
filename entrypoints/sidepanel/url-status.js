@@ -6,7 +6,7 @@
  */
 
 import { escapeRegex, escapeHtml, normalizeUrl } from './utils.js';
-import { lookupUrl } from './api.js';
+import { lookupUrl, normalizeBaseUrl } from './api.js';
 
 /**
  * Known EventAtlas domains (production, staging, local)
@@ -664,7 +664,7 @@ export async function addNewLinksToPipeline() {
   }
 
   try {
-    const response = await fetch(`${settings.apiUrl}/api/extension/add-discovered-links`, {
+    const response = await fetch(`${normalizeBaseUrl(settings.apiUrl)}/api/extension/add-discovered-links`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${settings.apiToken}`,

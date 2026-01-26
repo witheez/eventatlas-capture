@@ -21,7 +21,7 @@ const SYNC_DATA_KEY = 'eventatlas_sync_data';
  * @param {string} url - API URL (may or may not have protocol)
  * @returns {string} URL with protocol
  */
-function normalizeBaseUrl(url) {
+export function normalizeBaseUrl(url) {
   if (!url) return url;
 
   // Remove trailing slashes

@@ -7,7 +7,7 @@
  */
 
 import { formatBytes, getDomain, normalizeUrl, escapeRegex, escapeHtml, generateId, fixUrl } from './utils.js';
-import { syncWithApi, lookupUrl, testApiConnection, fetchTags, fetchEventTypes, fetchDistances } from './api.js';
+import { syncWithApi, lookupUrl, testApiConnection, fetchTags, fetchEventTypes, fetchDistances, normalizeBaseUrl } from './api.js';
 import {
   saveToStorage as saveToStorageRaw,
   loadFromStorage as loadFromStorageRaw,
@@ -1875,7 +1875,7 @@ async function fetchEventList() {
       params.append('starts_from', startsFromDate);
     }
 
-    const response = await fetch(`${settings.apiUrl}/api/extension/event-list?${params}`, {
+    const response = await fetch(`${normalizeBaseUrl(settings.apiUrl)}/api/extension/event-list?${params}`, {
       headers: {
         Authorization: `Bearer ${settings.apiToken}`,
         Accept: 'application/json',
@@ -2009,7 +2009,7 @@ async function navigateToEvent(event) {
   // Mark as visited if we have the link ID
   if (event.primary_link_id && settings.apiUrl && settings.apiToken) {
     try {
-      await fetch(`${settings.apiUrl}/api/extension/event-list/mark-visited`, {
+      await fetch(`${normalizeBaseUrl(settings.apiUrl)}/api/extension/event-list/mark-visited`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${settings.apiToken}`,

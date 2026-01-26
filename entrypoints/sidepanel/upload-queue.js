@@ -6,6 +6,7 @@
  */
 
 import { generateId } from './utils.js';
+import { normalizeBaseUrl } from './api.js';
 
 // Internal queue state
 let uploadQueue = [];
@@ -160,7 +161,7 @@ export function uploadQueueItem(queueItem) {
     markQueueItemFailed(queueItem.id, 'Upload timeout');
   });
 
-  xhr.open('POST', `${settings.apiUrl}/api/extension/events/${queueItem.eventId}/screenshot`);
+  xhr.open('POST', `${normalizeBaseUrl(settings.apiUrl)}/api/extension/events/${queueItem.eventId}/screenshot`);
   xhr.setRequestHeader('Authorization', `Bearer ${settings.apiToken}`);
   xhr.setRequestHeader('Accept', 'application/json');
   xhr.setRequestHeader('Content-Type', 'application/json');
