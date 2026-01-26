@@ -250,8 +250,8 @@ async function handleAddAsChild(): Promise<void> {
     btn.textContent = 'Adding...';
   }
 
-  // Read checkbox values
-  const autoProcess = elements.parentAutoProcess?.checked ?? false;
+  // Read checkbox values (both default to true)
+  const autoProcess = elements.parentAutoProcess?.checked ?? true;
   const cleanUrls = elements.parentCleanUrls?.checked ?? true;
 
   const settings = getSettings();
@@ -294,8 +294,8 @@ async function handleAddStandalone(): Promise<void> {
     btn.textContent = 'Adding...';
   }
 
-  // Read checkbox values
-  const autoProcess = elements.standaloneAutoProcess?.checked ?? false;
+  // Read checkbox values (both default to true)
+  const autoProcess = elements.standaloneAutoProcess?.checked ?? true;
   const cleanUrls = elements.standaloneCleanUrls?.checked ?? true;
 
   const settings = getSettings();
