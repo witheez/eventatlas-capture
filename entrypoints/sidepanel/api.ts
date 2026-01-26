@@ -672,3 +672,89 @@ export async function checkEventListStatus(
  * Export normalizeBaseUrl for use in upload-queue.ts (XHR needs manual URL construction)
  */
 export { normalizeBaseUrl };
+
+// =============================================================================
+// Quick Add to Pipeline API Functions
+// =============================================================================
+
+export interface ParentCheckResult {
+  has_parent: boolean;
+  parent: {
+    id: number;
+    display_name: string;
+    url: string;
+    is_api_scraper: boolean;
+    child_processor: { id: number; name: string } | null;
+  } | null;
+  blocked_reason?: string;
+}
+
+export interface ProcessorConfig {
+  id: number;
+  name: string;
+  scraper_implementation: string;
+  description: string | null;
+}
+
+export interface QuickImportResult {
+  success: boolean;
+  organizer_link_id: number;
+  message: string;
+}
+
+/**
+ * Check if a URL has a parent organizer link
+ */
+export async function checkParent(
+  url: string,
+  settings: ApiSettings
+): Promise<ApiResponse<ParentCheckResult>> {
+  if (!settings.apiUrl || !settings.apiToken) {
+    return { ok: false, status: 0, data: null, error: 'No API credentials' };
+  }
+
+  return apiRequest<ParentCheckResult>('/api/extension/check-parent', {
+    apiUrl: settings.apiUrl,
+    apiToken: settings.apiToken,
+    params: { url },
+  });
+}
+
+/**
+ * Get available processor configurations for standalone import
+ */
+export async function getProcessorConfigs(
+  settings: ApiSettings
+): Promise<ApiResponse<{ processor_configs: ProcessorConfig[] }>> {
+  if (!settings.apiUrl || !settings.apiToken) {
+    return { ok: false, status: 0, data: null, error: 'No API credentials' };
+  }
+
+  return apiRequest<{ processor_configs: ProcessorConfig[] }>('/api/extension/processor-configs', {
+    apiUrl: settings.apiUrl,
+    apiToken: settings.apiToken,
+  });
+}
+
+/**
+ * Quick import a URL to the pipeline
+ */
+export async function quickImport(
+  settings: ApiSettings,
+  data: {
+    url: string;
+    parent_organizer_link_id?: number;
+    processor_configuration_id?: number;
+  }
+): Promise<ApiResponse<QuickImportResult>> {
+  if (!settings.apiUrl || !settings.apiToken) {
+    return { ok: false, status: 0, data: null, error: 'No API credentials' };
+  }
+
+  return apiRequest<QuickImportResult>('/api/extension/quick-import', {
+    apiUrl: settings.apiUrl,
+    apiToken: settings.apiToken,
+    method: 'POST',
+    body: data,
+  });
+}

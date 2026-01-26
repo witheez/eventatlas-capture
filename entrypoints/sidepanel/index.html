@@ -224,6 +224,55 @@
       <div id="urlStatusDetails" class="url-status-details"></div>
     </div>
 
+    <!-- Quick Add to Pipeline Section -->
+    <div id="quickAddSection" class="quick-add-section" style="display: none;">
+      <h4>Add to Pipeline</h4>
+
+      <!-- Loading State -->
+      <div id="quickAddLoading" class="quick-add-loading" style="display: none;">
+        <div class="loading-spinner-small"></div>
+        <span>Checking for parent...</span>
+      </div>
+
+      <!-- Parent Found (Website Scraper) -->
+      <div id="quickAddParentFound" style="display: none;">
+        <div class="info-box success">
+          <span class="info-icon">&#10003;</span>
+          <div class="info-content">
+            <strong>Found parent: <span id="parentDisplayName"></span></strong>
+            <p>Will use: <span id="inheritedProcessorName"></span></p>
+          </div>
+        </div>
+        <button id="addAsChildBtn" class="add-btn">Add to Pipeline</button>
+      </div>
+
+      <!-- Parent Found (API - Blocked) -->
+      <div id="quickAddApiBlocked" style="display: none;">
+        <div class="info-box warning">
+          <span class="info-icon">&#9888;</span>
+          <div class="info-content">
+            <strong>Parent "<span id="blockedParentName"></span>" uses API scraping</strong>
+            <p>Run the parent scraper to discover events automatically.</p>
+          </div>
+        </div>
+        <a id="viewParentLink" href="#" target="_blank" class="view-link">View Parent in Admin &#8594;</a>
+      </div>
+
+      <!-- No Parent Found (Standalone) -->
+      <div id="quickAddStandalone" style="display: none;">
+        <div class="info-box neutral">
+          <span class="info-icon">&#8505;</span>
+          <div class="info-content">
+            <p>No parent found. Select a processor for standalone import:</p>
+          </div>
+        </div>
+        <select id="processorConfigSelect" class="form-select">
+          <option value="">Select processor...</option>
+        </select>
+        <button id="addStandaloneBtn" class="add-btn" disabled>Add to Pipeline</button>
+      </div>
+    </div>
+
     <!-- Event Editor Accordion (shown when URL matches a known event) -->
     <div id="eventEditor" class="event-editor">
       <!-- Accordion Header - contains page title, URL, badge, and view link -->

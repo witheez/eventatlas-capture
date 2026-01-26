@@ -113,6 +113,9 @@ import {
   toggleSelectAllNewLinks,
 } from './url-status';
 
+// Import quick-add module
+import { initQuickAdd, showQuickAddSection, hideQuickAddSection } from './quick-add';
+
 // Helper to create elements - uses a reference to avoid literal string match
 const doc = globalThis.document;
 const createElement = <K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] =>
@@ -316,6 +319,24 @@ const knownLinksList = document.getElementById('knownLinksList') as HTMLElement 
 const selectAllNewLinks = document.getElementById('selectAllNewLinks') as HTMLInputElement | null;
 const addNewLinksBtn = document.getElementById('addNewLinksBtn') as HTMLButtonElement | null;
 const selectedLinksCountEl = document.getElementById('selectedLinksCount') as HTMLElement | null;
+
+// DOM Elements - Quick Add to Pipeline
+const quickAddSection = document.getElementById('quickAddSection') as HTMLElement | null;
+const quickAddLoading = document.getElementById('quickAddLoading') as HTMLElement | null;
+const quickAddParentFound = document.getElementById('quickAddParentFound') as HTMLElement | null;
+const quickAddApiBlocked = document.getElementById('quickAddApiBlocked') as HTMLElement | null;
+const quickAddStandalone = document.getElementById('quickAddStandalone') as HTMLElement | null;
+const parentDisplayName = document.getElementById('parentDisplayName') as HTMLElement | null;
+const inheritedProcessorName = document.getElementById(
+  'inheritedProcessorName'
+) as HTMLElement | null;
+const blockedParentName = document.getElementById('blockedParentName') as HTMLElement | null;
+const viewParentLink = document.getElementById('viewParentLink') as HTMLAnchorElement | null;
+const processorConfigSelect = document.getElementById(
+  'processorConfigSelect'
+) as HTMLSelectElement | null;
+const addAsChildBtn = document.getElementById('addAsChildBtn') as HTMLButtonElement | null;
+const addStandaloneBtn = document.getElementById('addStandaloneBtn') as HTMLButtonElement | null;
 
 // DOM Elements - Event Editor
 const _eventEditor = document.getElementById('eventEditor') as HTMLElement | null;
@@ -2987,8 +3008,32 @@ async function init(): Promise<void> {
       updateCaptureButtonsVisibility,
       hasUnsavedChanges,
       showUnsavedDialog,
+      showQuickAddSection,
+      hideQuickAddSection,
     },
   });
+
+  // Initialize Quick Add module
+  initQuickAdd(
+    {
+      quickAddSection,
+      quickAddLoading,
+      quickAddParentFound,
+      quickAddApiBlocked,
+      quickAddStandalone,
+      parentDisplayName,
+      inheritedProcessorName,
+      blockedParentName,
+      viewParentLink,
+      processorConfigSelect,
+      addAsChildBtn,
+      addStandaloneBtn,
+    },
+    {
+      showToast,
+      onSuccess: () => updateUrlStatus(),
+    }
+  );
 
   await updateTabInfo();
   await loadFromStorage();

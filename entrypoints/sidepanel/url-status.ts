@@ -92,6 +92,8 @@ interface UrlStatusCallbacks {
   updateCaptureButtonsVisibility?: (() => void) | null;
   hasUnsavedChanges?: (() => boolean) | null;
   showUnsavedDialog?: (() => void) | null;
+  showQuickAddSection?: ((url: string) => void) | null;
+  hideQuickAddSection?: (() => void) | null;
 }
 
 interface UrlStatusConfig {
@@ -122,6 +124,8 @@ let callbacks: UrlStatusCallbacks = {
   updateCaptureButtonsVisibility: null,
   hasUnsavedChanges: null,
   showUnsavedDialog: null,
+  showQuickAddSection: null,
+  hideQuickAddSection: null,
 };
 
 /**
@@ -407,6 +411,10 @@ export async function updateUrlStatus(): Promise<void> {
       updateBundleUIVisibility(false);
       callbacks.hideEventEditor?.();
       hideLinkDiscoveryView();
+      // Show quick add section for new pages
+      if (tab.url) {
+        callbacks.showQuickAddSection?.(tab.url);
+      }
     } else if (result.match_type === 'event' && 'event' in result) {
       updatePageInfoBadge('event', 'Known Event', '\u2713');
       updateStatusViewLink(result.event?.id);
@@ -418,18 +426,21 @@ export async function updateUrlStatus(): Promise<void> {
         source?: 'cache' | 'api';
       });
       hideLinkDiscoveryView();
+      callbacks.hideQuickAddSection?.();
     } else if (result.match_type === 'link_discovery' && 'link_discovery' in result) {
       updatePageInfoBadge('link-discovery', 'Discovery', '\u2295');
       updateStatusViewLink(null);
       updateBundleUIVisibility(false);
       callbacks.hideEventEditor?.();
       showLinkDiscoveryView(result.link_discovery as LinkDiscoveryData);
+      callbacks.hideQuickAddSection?.();
     } else if (result.match_type === 'content_item') {
       updatePageInfoBadge('content-item', 'Scraped', '\u25D0');
       updateStatusViewLink(null);
       updateBundleUIVisibility(false);
       callbacks.hideEventEditor?.();
       hideLinkDiscoveryView();
+      callbacks.hideQuickAddSection?.();
     }
   } catch (error) {
     console.error('[EventAtlas] Status update error:', error);
