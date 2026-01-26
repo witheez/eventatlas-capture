@@ -1382,6 +1382,28 @@ body {
   background: #f3f4f6;
 }
 
+.refresh-single-btn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.refresh-single-btn:hover {
+  opacity: 1;
+  background: #f3f4f6;
+}
+
+.refresh-single-btn:disabled {
+  cursor: wait;
+  opacity: 0.4;
+}
+
 .event-list-item-missing {
   display: flex;
   gap: 6px;

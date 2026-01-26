@@ -536,6 +536,19 @@ export async function addDiscoveredLinks(
 }
 
 /**
+ * Fetch a single event by ID (for refreshing individual items)
+ */
+export async function fetchSingleEvent(
+  settings: ApiSettings,
+  eventId: number
+): Promise<ApiResponse<{ event: EventListEvent }>> {
+  return apiRequest<{ event: EventListEvent }>(`/api/extension/events/${eventId}`, {
+    apiUrl: settings.apiUrl,
+    apiToken: settings.apiToken,
+  });
+}
+
+/**
  * Export normalizeBaseUrl for use in upload-queue.ts (XHR needs manual URL construction)
  */
 export { normalizeBaseUrl };

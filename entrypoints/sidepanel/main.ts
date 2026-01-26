@@ -12,6 +12,7 @@ import {
   testApiConnection,
   fetchEventList as apiFetchEventList,
   markEventVisited as apiMarkEventVisited,
+  fetchSingleEvent,
 } from './api';
 import type { Bundle, Capture, DistancePreset } from './storage';
 import {
@@ -78,6 +79,7 @@ import {
   setPendingScreenshots,
   // URL tracking
   setLastKnownUrl,
+  getPendingUrlChange,
   setPendingUrlChange,
   // Types
   type EventListItem,
@@ -2009,6 +2011,14 @@ function renderEventList(): void {
     copyBtnEl.title = 'Copy URL';
     copyBtnEl.textContent = '\u{1F4CB}';
     urlRow.appendChild(copyBtnEl);
+
+    // Add refresh button (next to copy button)
+    const refreshBtn = createElement('button') as HTMLButtonElement;
+    refreshBtn.className = 'refresh-single-btn';
+    refreshBtn.title = 'Refresh this event';
+    refreshBtn.textContent = '\u21BB';
+    urlRow.appendChild(refreshBtn);
+
     item.appendChild(urlRow);
 
     // Build meta row
@@ -2043,6 +2053,34 @@ function renderEventList(): void {
           copyBtnEl.textContent = '\u{1F4CB}';
         }, 1500);
       });
+    });
+
+    // Refresh button handler
+    refreshBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = '\u23F3';
+      try {
+        const settings = getSettings();
+        const result = await fetchSingleEvent(settings, event.id);
+        if (result.ok && result.data?.event) {
+          // Update event in cache
+          const cache = getEventListCache();
+          const index = cache.findIndex((ev) => ev.id === event.id);
+          if (index >= 0) {
+            cache[index] = result.data.event;
+            setEventListCache(cache);
+            renderEventList(); // Re-render to show updates
+          }
+        }
+        refreshBtn.textContent = '\u2713';
+      } catch {
+        refreshBtn.textContent = '\u2717';
+      }
+      setTimeout(() => {
+        refreshBtn.textContent = '\u21BB';
+        refreshBtn.disabled = false;
+      }, 1500);
     });
 
     item.addEventListener('click', () => navigateToEvent(event));
