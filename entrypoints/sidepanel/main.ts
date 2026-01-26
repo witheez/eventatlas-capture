@@ -18,7 +18,6 @@ import {
 } from './storage';
 import {
   initUploadQueue,
-  getUploadQueue,
   generateThumbnail,
   addToUploadQueue,
   uploadQueueItem,
@@ -34,9 +33,77 @@ import {
 import { initEventEditor } from './event-editor';
 import type { EventEditorAPI, MatchedEvent, PendingScreenshot } from './event-editor';
 import { initCapture } from './capture';
-// Note: bundles.js, page-detail.js, event-list.js modules exist but their functions
-// are currently implemented locally in sidepanel.js for direct access to module state.
-// TODO: Refactor to fully use module pattern with proper state management.
+// Import centralized state store
+import {
+  DEFAULT_SETTINGS,
+  DEFAULT_FILTER_STATE,
+  // Core data
+  getBundles,
+  setBundles,
+  getBundleById,
+  getSettings,
+  setSettings,
+  getFilterState,
+  setFilterState,
+  // View state
+  getCurrentView,
+  setCurrentView,
+  getCurrentBundleId,
+  setCurrentBundleId,
+  getCurrentBundle,
+  getCurrentPageIndex,
+  setCurrentPageIndex,
+  getActiveTab,
+  setActiveTab,
+  // Detail view state
+  getSelectedImages,
+  setSelectedImages,
+  getTextExpanded,
+  setTextExpanded,
+  // Pending operations
+  getPendingCapture,
+  setPendingCapture,
+  getDraggedPage,
+  setDraggedPage,
+  // Event list state
+  getEventListCache,
+  setEventListCache,
+  getEventListLastFetched,
+  setEventListLastFetched,
+  getEventListRefreshTimer,
+  setEventListRefreshTimer,
+  // Event editor state
+  getCurrentMatchedEvent,
+  setCurrentMatchedEvent,
+  getAvailableTags,
+  setAvailableTags,
+  getAvailableEventTypes,
+  setAvailableEventTypes,
+  getAvailableDistances,
+  setAvailableDistances,
+  getSelectedEventTypeId,
+  setSelectedEventTypeId,
+  getSelectedTagIds,
+  setSelectedTagIds,
+  getSelectedDistanceValues,
+  setSelectedDistanceValues,
+  getEventEditorExpanded,
+  setEventEditorExpanded,
+  getPendingScreenshots,
+  setPendingScreenshots,
+  // URL tracking
+  getLastKnownUrl,
+  setLastKnownUrl,
+  getPendingUrlChange,
+  setPendingUrlChange,
+  // Types
+  type EventListItem,
+  type Tag,
+  type EventType,
+  type Distance,
+  type DraggedPage,
+  type PendingCaptureData,
+} from './store';
 
 // Import pure functions from event-list.js (no state dependencies)
 import {
@@ -65,46 +132,6 @@ import {
   toggleSelectAllNewLinks,
 } from './url-status';
 
-// Types for event list
-interface EventListItem {
-  id: number;
-  name: string;
-  primary_url?: string;
-  primary_link_id?: number;
-  start_datetime?: string;
-  event_type?: { name: string };
-  tags?: Array<{ name: string }>;
-  distances?: Array<{ value: number; label: string }>;
-  missing?: string[];
-}
-
-interface Tag {
-  id: number;
-  name: string;
-}
-
-interface EventType {
-  id: number;
-  name: string;
-}
-
-interface Distance {
-  value: number;
-  label: string;
-  isUserPreset?: boolean;
-}
-
-interface DraggedPage {
-  bundleId: string;
-  pageIndex: number;
-}
-
-interface PendingCaptureData {
-  capture: Capture;
-  bundleId: string;
-  duplicateIndex: number;
-}
-
 // Storage keys
 const STORAGE_KEY = 'eventatlas_capture_data';
 const OLD_STORAGE_KEY = 'eventatlas_capture_bundle'; // Legacy key for migration
@@ -112,71 +139,12 @@ const SYNC_DATA_KEY = 'eventatlas_sync_data';
 const MAX_BUNDLE_PAGES = 20;
 const MAX_BUNDLES = 50;
 
-// Default settings
-const DEFAULT_SETTINGS: Settings = {
-  autoGroupByDomain: true,
-  captureScreenshotByDefault: false,
-  apiUrl: '',
-  apiToken: '',
-  syncMode: 'both', // 'bulk_only', 'realtime_only', 'both'
-  // Distance presets - new toggle-based format
-  distancePresets: {
-    // Which default distances are enabled (true = show, false = hide)
-    defaults: {
-      5: true,   // 5K
-      10: true,  // 10K
-      21: true,  // HM
-      42: true,  // FM
-      50: true,  // 50K
-      100: true, // 100K
-      161: true, // 100M
-    },
-    // Additional custom distances to add (comma-separated in input)
-    custom: [],
-  },
-  screenshotUploadTiming: 'immediate', // 'immediate' or 'on_save'
-  autoSwitchTab: true, // Switch to Current tab when clicking event in list
-  eventListRefreshInterval: 0, // Background refresh interval in minutes (0 = off)
-};
-
-// App state
-let bundles: Bundle[] = []; // Array of { id, name, pages[], createdAt, expanded }
-let settings: Settings = { ...DEFAULT_SETTINGS };
-
-// Current view state: 'bundles', 'detail'
-let currentView: 'bundles' | 'detail' = 'bundles';
-let currentBundleId: string | null = null;
-let currentPageIndex: number | null = null;
-
-// Detail view state
-let selectedImages: Set<string> = new Set();
-let textExpanded = false;
-
-// Pending capture for duplicate handling
-let pendingCapture: PendingCaptureData | null = null;
-
-// Drag and drop state
-let draggedPage: DraggedPage | null = null; // { bundleId, pageIndex }
-
-// Event list state
-let eventListCache: EventListItem[] = [];
-let eventListLastFetched: number | null = null;
-let eventListRefreshTimer: ReturnType<typeof setInterval> | null = null;
-let activeTab: 'current' | 'event-list' = 'current'; // 'current' or 'event-list'
-const DEFAULT_FILTER_STATE: FilterState = {
-  missingTags: false,
-  missingDistances: false,
-  mode: 'any',
-  startsFrom: null, // 'this_month', 'next_month', '2_months', '3_months', '6_months', or ISO date string
-};
-let filterState: FilterState = { ...DEFAULT_FILTER_STATE };
-
 // Storage key for filter state persistence
 const FILTER_STATE_KEY = 'eventatlas_filter_state';
 
-// Storage wrapper functions that bind to module state
+// Storage wrapper functions that use centralized store
 async function saveToStorage(): Promise<void> {
-  await saveToStorageRaw(STORAGE_KEY, { bundles, settings });
+  await saveToStorageRaw(STORAGE_KEY, { bundles: getBundles(), settings: getSettings() });
 }
 
 async function loadFromStorage(): Promise<boolean> {
@@ -186,8 +154,8 @@ async function loadFromStorage(): Promise<boolean> {
     DEFAULT_SETTINGS,
     { migrateOldDistancePresets, getDomain, generateId }
   );
-  bundles = result.bundles;
-  settings = result.settings;
+  setBundles(result.bundles);
+  setSettings(result.settings);
   if (result.migrated) {
     await saveToStorage();
   }
@@ -195,23 +163,17 @@ async function loadFromStorage(): Promise<boolean> {
 }
 
 async function clearAllStorage(): Promise<void> {
-  bundles = [];
-  await clearAllStorageRaw(STORAGE_KEY, settings);
+  setBundles([]);
+  await clearAllStorageRaw(STORAGE_KEY, getSettings());
 }
 
 async function saveFilterState(): Promise<void> {
-  await saveFilterStateRaw(FILTER_STATE_KEY, filterState);
+  await saveFilterStateRaw(FILTER_STATE_KEY, getFilterState());
 }
 
 async function loadFilterState(): Promise<void> {
-  filterState = await loadFilterStateRaw(FILTER_STATE_KEY, DEFAULT_FILTER_STATE);
+  setFilterState(await loadFilterStateRaw(FILTER_STATE_KEY, DEFAULT_FILTER_STATE));
 }
-
-// Link Discovery state
-let currentLinkDiscovery: unknown = null;
-let extractedPageLinks: string[] = [];
-let newDiscoveredLinks: string[] = [];
-let selectedNewLinks: Set<string> = new Set();
 
 // DOM Elements - Views
 const bundlesView = document.getElementById('bundlesView') as HTMLElement;
@@ -368,25 +330,8 @@ const captureEventScreenshotBtn = document.getElementById('captureEventScreensho
 const captureEventHtmlBtn = document.getElementById('captureEventHtmlBtn') as HTMLButtonElement | null;
 const savedScreenshotsEl = document.getElementById('savedScreenshots') as HTMLElement | null;
 
-// Event Editor State
-let currentMatchedEvent: MatchedEvent | null = null;
-let availableTags: Tag[] = [];
-let availableEventTypes: EventType[] = [];
-let availableDistances: Distance[] = [];
-let selectedEventTypeId: number | null = null;
-let selectedTagIds: Set<number> = new Set();
-let selectedDistanceValues: number[] = [];
-let eventEditorExpanded = true; // Default expanded when event is matched
-
-// Pending screenshots state (for on_save mode)
-let pendingScreenshots: PendingScreenshot[] = []; // Array of { id, data, filename, capturedAt }
-let lastKnownUrl: string | null = null; // Track URL changes for unsaved warning
-let pendingUrlChange: string | null = null; // Stores the URL we want to navigate to after dialog
-
-// Event Editor module instance (initialized in init())
+// Module instances (initialized in init())
 let eventEditorModule: EventEditorAPI | null = null;
-
-// Capture module instance (initialized in init())
 let captureModule: ReturnType<typeof initCapture> | null = null;
 
 // DOM Elements - Screenshot Upload Timing Setting
@@ -441,31 +386,17 @@ function showDuplicateDialog(existingTitle: string): void {
  */
 function hideDuplicateDialog(): void {
   duplicateDialog.classList.remove('visible');
-  pendingCapture = null;
+  setPendingCapture(null);
 }
 
 // URL status functions are imported from url-status.js:
 // updateTabInfo, updateUrlStatus, hideLinkDiscoveryView, scanPageForLinks, addNewLinksToPipeline, etc.
 
 /**
- * Get bundle by ID
- */
-function getBundleById(id: string): Bundle | undefined {
-  return bundles.find((b) => b.id === id);
-}
-
-/**
- * Get current bundle
- */
-function getCurrentBundle(): Bundle | null {
-  return currentBundleId ? getBundleById(currentBundleId) || null : null;
-}
-
-/**
  * Update capture buttons visibility based on screenshot default setting
  */
 function updateCaptureButtonsVisibility(): void {
-  if (settings.captureScreenshotByDefault) {
+  if (getSettings().captureScreenshotByDefault) {
     // Show single button (captures with screenshot)
     captureBtn.style.display = 'block';
     captureBtnGroup.style.display = 'none';
@@ -480,7 +411,7 @@ function updateCaptureButtonsVisibility(): void {
  * Switch between views: 'bundles', 'detail'
  */
 function switchView(view: 'bundles' | 'detail'): void {
-  currentView = view;
+  setCurrentView(view);
 
   // Hide all views
   bundlesView.classList.remove('active');
@@ -489,7 +420,7 @@ function switchView(view: 'bundles' | 'detail'): void {
 
   if (view === 'bundles') {
     bundlesView.classList.add('active');
-    currentPageIndex = null;
+    setCurrentPageIndex(null);
   } else if (view === 'detail') {
     detailView.classList.add('active');
     backNav.classList.add('visible');
@@ -501,7 +432,7 @@ function switchView(view: 'bundles' | 'detail'): void {
  * Update header badge - total pages across all bundles
  */
 function updateBadge(): void {
-  const totalPages = bundles.reduce((sum, b) => sum + (b.pages?.length || 0), 0);
+  const totalPages = getBundles().reduce((sum, b) => sum + (b.pages?.length || 0), 0);
   if (totalPages === 0) {
     captureBadge.textContent = 'No captures';
     captureBadge.classList.remove('has-capture');
@@ -539,6 +470,7 @@ function renderBundlesList(): void {
   clearChildren(bundlesList);
   updateBadge();
 
+  const bundles = getBundles();
   const count = bundles.length;
   bundlesCount.textContent = `${count} bundle${count !== 1 ? 's' : ''}`;
 
@@ -858,7 +790,8 @@ function populateMoveBundleSelect(): void {
   defaultOption.textContent = '-- Select bundle --';
   moveBundleSelect.appendChild(defaultOption);
 
-  bundles.forEach((bundle) => {
+  const currentBundleId = getCurrentBundleId();
+  getBundles().forEach((bundle) => {
     // Skip current bundle
     if (bundle.id === currentBundleId) return;
 
@@ -888,10 +821,11 @@ function renderDetailPreview(capture: Capture): void {
   // Text preview
   const fullText = capture.text || '';
   const previewText = fullText.substring(0, 500);
-  textPreview.textContent = textExpanded ? fullText : previewText + (fullText.length > 500 ? '...' : '');
+  const isTextExpanded = getTextExpanded();
+  textPreview.textContent = isTextExpanded ? fullText : previewText + (fullText.length > 500 ? '...' : '');
   textCharCount.textContent = `${fullText.length.toLocaleString()} chars`;
   textToggle.style.display = fullText.length > 500 ? 'block' : 'none';
-  textToggle.textContent = textExpanded ? 'Show less' : 'Show more';
+  textToggle.textContent = isTextExpanded ? 'Show less' : 'Show more';
 
   // Image gallery
   renderImageGallery(capture);
@@ -1165,12 +1099,15 @@ async function removePageFromBundle(bundleId: string, index: number): Promise<vo
   const removed = bundle.pages.splice(index, 1)[0];
   await saveToStorage();
 
+  const currentBundleId = getCurrentBundleId();
+  const currentPageIndex = getCurrentPageIndex();
+
   // If we're viewing the removed item in detail view, go back to bundles
-  if (currentView === 'detail' && currentBundleId === bundleId && currentPageIndex === index) {
+  if (getCurrentView() === 'detail' && currentBundleId === bundleId && currentPageIndex === index) {
     switchView('bundles');
-  } else if (currentView === 'detail' && currentBundleId === bundleId && currentPageIndex !== null && currentPageIndex > index) {
+  } else if (getCurrentView() === 'detail' && currentBundleId === bundleId && currentPageIndex !== null && currentPageIndex > index) {
     // Adjust index if we removed something before current view
-    currentPageIndex--;
+    setCurrentPageIndex(currentPageIndex - 1);
   }
 
   renderBundlesList();
@@ -1181,6 +1118,8 @@ async function removePageFromBundle(bundleId: string, index: number): Promise<vo
  * Remove current page from bundle (from detail view)
  */
 async function removeCurrentFromBundle(): Promise<void> {
+  const currentBundleId = getCurrentBundleId();
+  const currentPageIndex = getCurrentPageIndex();
   if (currentBundleId && currentPageIndex !== null) {
     await removePageFromBundle(currentBundleId, currentPageIndex);
   }
@@ -1190,6 +1129,7 @@ async function removeCurrentFromBundle(): Promise<void> {
  * Delete an entire bundle
  */
 async function deleteBundle(bundleId: string): Promise<void> {
+  const bundles = getBundles();
   const index = bundles.findIndex((b) => b.id === bundleId);
   if (index === -1) return;
 
@@ -1197,7 +1137,7 @@ async function deleteBundle(bundleId: string): Promise<void> {
   await saveToStorage();
 
   // If viewing detail of deleted bundle, go back to bundles list
-  if (currentBundleId === bundleId) {
+  if (getCurrentBundleId() === bundleId) {
     switchView('bundles');
   }
 
@@ -1209,12 +1149,12 @@ async function deleteBundle(bundleId: string): Promise<void> {
  * Clear all bundles
  */
 async function clearAllBundles(): Promise<void> {
-  if (bundles.length === 0) {
+  if (getBundles().length === 0) {
     showToast('No bundles to clear', 'error');
     return;
   }
 
-  bundles = [];
+  setBundles([]);
   await saveToStorage();
 
   switchView('bundles');
@@ -1239,13 +1179,14 @@ function findDuplicateInBundle(bundleId: string, url: string): number {
  * Find bundle for domain (for auto-grouping)
  */
 function findBundleForDomain(domain: string): Bundle | undefined {
-  return bundles.find((b) => b.name === domain);
+  return getBundles().find((b) => b.name === domain);
 }
 
 /**
  * Create a new bundle
  */
 function createBundle(name?: string): Bundle | null {
+  const bundles = getBundles();
   if (bundles.length >= MAX_BUNDLES) {
     showToast(`Bundle limit reached (${MAX_BUNDLES} max)`, 'error');
     return null;
@@ -1408,6 +1349,7 @@ async function capturePage(includeScreenshot: boolean = true): Promise<void> {
     // Determine target bundle based on auto-group setting
     const domain = getDomain(response.url);
     let targetBundle: Bundle | null = null;
+    const settings = getSettings();
 
     if (settings.autoGroupByDomain) {
       // Try to find existing bundle for this domain
@@ -1416,7 +1358,7 @@ async function capturePage(includeScreenshot: boolean = true): Promise<void> {
 
     if (!targetBundle) {
       // Create new bundle
-      const bundleName = settings.autoGroupByDomain ? domain : `Bundle ${bundles.length + 1}`;
+      const bundleName = settings.autoGroupByDomain ? domain : `Bundle ${getBundles().length + 1}`;
       targetBundle = createBundle(bundleName);
       if (!targetBundle) {
         setCaptureButtonsState(false, 'Capture Page');
@@ -1430,11 +1372,11 @@ async function capturePage(includeScreenshot: boolean = true): Promise<void> {
     if (duplicateIndex >= 0) {
       // Show duplicate dialog
       const existingPage = targetBundle.pages[duplicateIndex];
-      pendingCapture = {
+      setPendingCapture({
         capture: response,
         bundleId: targetBundle.id,
         duplicateIndex,
-      };
+      });
       showDuplicateDialog(existingPage.editedTitle || existingPage.title);
 
       setCaptureButtonsState(false, 'Capture Page');
@@ -1447,7 +1389,7 @@ async function capturePage(includeScreenshot: boolean = true): Promise<void> {
     if (success) {
       setCaptureButtonsState(true, 'Added!');
       setCaptureButtonsClass('success', true);
-      const totalPages = bundles.reduce((sum, b) => sum + (b.pages?.length || 0), 0);
+      const totalPages = getBundles().reduce((sum, b) => sum + (b.pages?.length || 0), 0);
       showToast(`Added to "${targetBundle.name}" (${totalPages} total page${totalPages !== 1 ? 's' : ''})`, 'success');
 
       setTimeout(() => {
@@ -1485,6 +1427,7 @@ async function capturePage(includeScreenshot: boolean = true): Promise<void> {
  */
 async function addScreenshotToCurrentCapture(): Promise<void> {
   const bundle = getCurrentBundle();
+  const currentPageIndex = getCurrentPageIndex();
   if (!bundle || currentPageIndex === null || currentPageIndex >= bundle.pages.length) {
     showToast('No capture selected', 'error');
     return;
@@ -1536,6 +1479,7 @@ async function addScreenshotToCurrentCapture(): Promise<void> {
  * Handle duplicate replace
  */
 async function handleDuplicateReplace(): Promise<void> {
+  const pendingCapture = getPendingCapture();
   if (!pendingCapture) return;
 
   const { capture, bundleId, duplicateIndex } = pendingCapture;
@@ -1546,7 +1490,7 @@ async function handleDuplicateReplace(): Promise<void> {
     showToast('Replaced existing page in bundle', 'success');
   }
 
-  pendingCapture = null;
+  setPendingCapture(null);
 }
 
 /**
@@ -1555,13 +1499,15 @@ async function handleDuplicateReplace(): Promise<void> {
 function handleDuplicateSkip(): void {
   hideDuplicateDialog();
   showToast('Page skipped (already in bundle)', 'success');
-  pendingCapture = null;
+  setPendingCapture(null);
 }
 
 /**
  * Move page to another bundle (from detail view dropdown)
  */
 async function movePageToBundle(targetBundleId: string): Promise<void> {
+  const currentBundleId = getCurrentBundleId();
+  const currentPageIndex = getCurrentPageIndex();
   if (!targetBundleId || !currentBundleId || currentPageIndex === null) return;
 
   const sourceBundle = getCurrentBundle();
@@ -1606,12 +1552,12 @@ async function refreshPageData(): Promise<void> {
 
   try {
     // Clear cached editor options to force reload
-    availableTags = [];
-    availableEventTypes = [];
-    availableDistances = [];
+    setAvailableTags([]);
+    setAvailableEventTypes([]);
+    setAvailableDistances([]);
 
     // Sync with API (refresh local cache)
-    const syncResult = await syncWithApi(settings);
+    const syncResult = await syncWithApi(getSettings());
     if (syncResult) {
       console.log('[EventAtlas] Refresh - Sync completed:', {
         events: syncResult.events?.length || 0,
@@ -1623,7 +1569,7 @@ async function refreshPageData(): Promise<void> {
     await updateUrlStatus();
 
     // If we have an event editor visible, reload its options
-    if (currentMatchedEvent && eventEditorModule) {
+    if (getCurrentMatchedEvent() && eventEditorModule) {
       await loadEditorOptions();
       // Re-render editor with fresh data
       renderTagsChips();
@@ -1643,11 +1589,13 @@ async function refreshPageData(): Promise<void> {
 refreshBtn.addEventListener('click', refreshPageData);
 
 autoGroupSetting.addEventListener('change', async () => {
+  const settings = getSettings();
   settings.autoGroupByDomain = autoGroupSetting.checked;
   await saveToStorage();
 });
 
 screenshotDefaultSetting.addEventListener('change', async () => {
+  const settings = getSettings();
   settings.captureScreenshotByDefault = screenshotDefaultSetting.checked;
   await saveToStorage();
   updateCaptureButtonsVisibility();
@@ -1677,6 +1625,7 @@ toggleTokenVisibility.addEventListener('click', () => {
 
 // Save Settings button - saves all API settings at once
 saveSettingsBtn.addEventListener('click', async () => {
+  const settings = getSettings();
   // Collect values from form
   settings.apiUrl = apiUrlSetting.value.trim();
   settings.apiToken = apiTokenSetting.value.trim();
@@ -1720,7 +1669,7 @@ saveSettingsBtn.addEventListener('click', async () => {
   // Reload editor options if API is configured (to apply new distance presets)
   if (settings.apiUrl && settings.apiToken) {
     // Reset available distances to trigger reload
-    availableDistances = [];
+    setAvailableDistances([]);
   }
 
   // Show saved feedback
@@ -1890,7 +1839,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, _tab) => {
  * Switch between tabs (Current/Event List)
  */
 function switchMainTab(tabName: 'current' | 'event-list'): void {
-  activeTab = tabName;
+  setActiveTab(tabName);
 
   // Update tab buttons
   if (tabNavigation) {
@@ -1907,7 +1856,7 @@ function switchMainTab(tabName: 'current' | 'event-list'): void {
   if (backNav) backNav.classList.remove('visible');
 
   // Fetch event list if switching to it and cache is empty/stale
-  if (tabName === 'event-list' && eventListCache.length === 0) {
+  if (tabName === 'event-list' && getEventListCache().length === 0) {
     fetchEventList();
   }
 }
@@ -1916,6 +1865,7 @@ function switchMainTab(tabName: 'current' | 'event-list'): void {
  * Fetch event list from API
  */
 async function fetchEventList(): Promise<void> {
+  const settings = getSettings();
   if (!settings.apiUrl || !settings.apiToken) {
     showEventListEmpty('Please configure API settings');
     return;
@@ -1925,6 +1875,7 @@ async function fetchEventList(): Promise<void> {
 
   try {
     const params = new URLSearchParams();
+    const filterState = getFilterState();
     if (filterState.missingTags) params.append('missing_tags', '1');
     if (filterState.missingDistances) params.append('missing_distances', '1');
     params.append('filter_mode', filterState.mode);
@@ -1945,8 +1896,8 @@ async function fetchEventList(): Promise<void> {
     if (!response.ok) throw new Error('Failed to fetch event list');
 
     const data = await response.json() as { events?: EventListItem[] };
-    eventListCache = data.events || [];
-    eventListLastFetched = Date.now();
+    setEventListCache(data.events || []);
+    setEventListLastFetched(Date.now());
 
     renderEventList();
   } catch (error) {
@@ -1964,6 +1915,7 @@ function renderEventList(): void {
   if (eventListLoading) eventListLoading.style.display = 'none';
   eventListContainer.innerHTML = '';
 
+  const eventListCache = getEventListCache();
   if (eventListCache.length === 0) {
     if (eventListEmpty) {
       eventListEmpty.textContent = 'No events match your filters';
@@ -2028,6 +1980,7 @@ function updateStartsFromDropdown(): void {
   ).join('');
 
   // Set current value
+  const filterState = getFilterState();
   if (filterState.startsFrom) {
     // Check if it's a preset
     const presets = ['this_month', 'next_month', '2_months', '3_months', '6_months'];
@@ -2066,6 +2019,7 @@ function showEventListEmpty(message: string): void {
  * Navigate to an event URL and optionally switch to Current tab
  */
 async function navigateToEvent(event: EventListItem): Promise<void> {
+  const settings = getSettings();
   // Mark as visited if we have the link ID
   if (event.primary_link_id && settings.apiUrl && settings.apiToken) {
     try {
@@ -2097,19 +2051,22 @@ async function navigateToEvent(event: EventListItem): Promise<void> {
  * Setup background refresh timer for event list
  */
 function setupEventListRefresh(): void {
-  if (eventListRefreshTimer) {
-    clearInterval(eventListRefreshTimer);
-    eventListRefreshTimer = null;
+  const existingTimer = getEventListRefreshTimer();
+  if (existingTimer) {
+    clearInterval(existingTimer);
+    setEventListRefreshTimer(null);
   }
 
+  const settings = getSettings();
   const interval = (settings.eventListRefreshInterval || 0) * 60 * 1000;
 
   if (interval > 0) {
-    eventListRefreshTimer = setInterval(() => {
-      if (activeTab === 'event-list') {
+    const timer = setInterval(() => {
+      if (getActiveTab() === 'event-list') {
         fetchEventList();
       }
     }, interval);
+    setEventListRefreshTimer(timer);
   }
 }
 
@@ -2123,6 +2080,7 @@ if (tabNavigation) {
 // Event Listeners - Event List Filters
 if (filterMissingTags) {
   filterMissingTags.addEventListener('change', async (e) => {
+    const filterState = getFilterState();
     filterState.missingTags = (e.target as HTMLInputElement).checked;
     await saveFilterState();
     fetchEventList();
@@ -2131,6 +2089,7 @@ if (filterMissingTags) {
 
 if (filterMissingDistances) {
   filterMissingDistances.addEventListener('change', async (e) => {
+    const filterState = getFilterState();
     filterState.missingDistances = (e.target as HTMLInputElement).checked;
     await saveFilterState();
     fetchEventList();
@@ -2156,6 +2115,7 @@ if (filterStartsFrom) {
     } else {
       // Hide custom date picker
       if (customDateContainer) customDateContainer.style.display = 'none';
+      const filterState = getFilterState();
       filterState.startsFrom = value || null;
       await saveFilterState();
       fetchEventList();
@@ -2165,6 +2125,7 @@ if (filterStartsFrom) {
 
 if (customDateInput) {
   customDateInput.addEventListener('change', async (e) => {
+    const filterState = getFilterState();
     filterState.startsFrom = (e.target as HTMLInputElement).value || null;
     await saveFilterState();
     fetchEventList();
@@ -2176,6 +2137,7 @@ document.querySelectorAll('.filter-mode-btn').forEach((btn) => {
   btn.addEventListener('click', async () => {
     document.querySelectorAll('.filter-mode-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
+    const filterState = getFilterState();
     filterState.mode = (btn as HTMLElement).dataset.mode as 'any' | 'all';
     await saveFilterState();
     fetchEventList();
@@ -2190,6 +2152,7 @@ if (refreshEventListBtn) {
 // Event List Settings listeners
 if (autoSwitchTabSetting) {
   autoSwitchTabSetting.addEventListener('change', async () => {
+    const settings = getSettings();
     settings.autoSwitchTab = autoSwitchTabSetting.checked;
     await saveToStorage();
   });
@@ -2197,6 +2160,7 @@ if (autoSwitchTabSetting) {
 
 if (eventListRefreshIntervalSetting) {
   eventListRefreshIntervalSetting.addEventListener('change', async () => {
+    const settings = getSettings();
     settings.eventListRefreshInterval = parseInt(eventListRefreshIntervalSetting.value, 10);
     await saveToStorage();
     setupEventListRefresh();
@@ -2263,6 +2227,7 @@ function migrateOldDistancePresets(presetsString: string): DistancePreset {
  * Returns the distancePresets object with defaults and custom arrays
  */
 function getDistancePresets(): DistancePreset {
+  const settings = getSettings();
   // Handle new format
   if (settings.distancePresets && typeof settings.distancePresets === 'object') {
     return settings.distancePresets;
@@ -2431,6 +2396,8 @@ function renderSelectedDistances(): void {
  * Uses upload queue for immediate uploads with progress tracking
  */
 async function captureAndUploadEventScreenshot(): Promise<void> {
+  const currentMatchedEvent = getCurrentMatchedEvent();
+  const settings = getSettings();
   console.log('[EventAtlas] captureAndUploadEventScreenshot called', {
     hasMatchedEvent: !!currentMatchedEvent,
     hasApiUrl: !!settings.apiUrl,
@@ -2467,6 +2434,7 @@ async function captureAndUploadEventScreenshot(): Promise<void> {
     // Check upload timing setting
     if (settings.screenshotUploadTiming === 'on_save') {
       // Store locally as pending
+      const pendingScreenshots = getPendingScreenshots();
       pendingScreenshots.push({
         id: generateId(),
         data: screenshot,
@@ -2564,15 +2532,15 @@ unsavedSaveBtn.addEventListener('click', async () => {
   hideUnsavedDialog();
   await saveEventChanges();
   // After save, proceed with the URL change
-  lastKnownUrl = null; // Reset so next updateTabInfo works
-  pendingScreenshots = []; // Clear any remaining pending (should be uploaded)
+  setLastKnownUrl(null); // Reset so next updateTabInfo works
+  setPendingScreenshots([]); // Clear any remaining pending (should be uploaded)
   await updateTabInfo();
 });
 
 unsavedDiscardBtn.addEventListener('click', async () => {
   hideUnsavedDialog();
   discardPendingScreenshots();
-  lastKnownUrl = null; // Reset so next updateTabInfo works
+  setLastKnownUrl(null); // Reset so next updateTabInfo works
   await updateTabInfo();
 });
 
@@ -2630,19 +2598,19 @@ async function init(): Promise<void> {
       unsavedDiscardBtn: document.getElementById('unsavedDiscardBtn') as HTMLButtonElement,
       unsavedCancelBtn: document.getElementById('unsavedCancelBtn') as HTMLButtonElement,
     },
-    getSettings: () => settings,
+    getSettings: () => getSettings(),
     getState: () => ({
-      currentMatchedEvent,
-      availableTags,
-      availableEventTypes,
-      availableDistances,
-      selectedEventTypeId,
-      selectedTagIds,
-      selectedDistanceValues,
-      eventEditorExpanded,
-      pendingScreenshots,
-      pendingUrlChange,
-      uploadQueue: getUploadQueue(),
+      currentMatchedEvent: getCurrentMatchedEvent(),
+      availableTags: getAvailableTags(),
+      availableEventTypes: getAvailableEventTypes(),
+      availableDistances: getAvailableDistances(),
+      selectedEventTypeId: getSelectedEventTypeId(),
+      selectedTagIds: getSelectedTagIds(),
+      selectedDistanceValues: getSelectedDistanceValues(),
+      eventEditorExpanded: getEventEditorExpanded(),
+      pendingScreenshots: getPendingScreenshots(),
+      pendingUrlChange: getPendingUrlChange(),
+      uploadQueue: [],
     }),
     setState: (updates: Partial<{
       currentMatchedEvent: MatchedEvent | null;
@@ -2656,16 +2624,16 @@ async function init(): Promise<void> {
       pendingScreenshots: PendingScreenshot[];
       pendingUrlChange: string | null;
     }>) => {
-      if ('currentMatchedEvent' in updates) currentMatchedEvent = updates.currentMatchedEvent ?? null;
-      if ('availableTags' in updates) availableTags = updates.availableTags ?? [];
-      if ('availableEventTypes' in updates) availableEventTypes = updates.availableEventTypes ?? [];
-      if ('availableDistances' in updates) availableDistances = updates.availableDistances ?? [];
-      if ('selectedEventTypeId' in updates) selectedEventTypeId = updates.selectedEventTypeId ?? null;
-      if ('selectedTagIds' in updates) selectedTagIds = updates.selectedTagIds ?? new Set();
-      if ('selectedDistanceValues' in updates) selectedDistanceValues = updates.selectedDistanceValues ?? [];
-      if ('eventEditorExpanded' in updates) eventEditorExpanded = updates.eventEditorExpanded ?? true;
-      if ('pendingScreenshots' in updates) pendingScreenshots = updates.pendingScreenshots ?? [];
-      if ('pendingUrlChange' in updates) pendingUrlChange = updates.pendingUrlChange ?? null;
+      if ('currentMatchedEvent' in updates) setCurrentMatchedEvent(updates.currentMatchedEvent ?? null);
+      if ('availableTags' in updates) setAvailableTags(updates.availableTags ?? []);
+      if ('availableEventTypes' in updates) setAvailableEventTypes(updates.availableEventTypes ?? []);
+      if ('availableDistances' in updates) setAvailableDistances(updates.availableDistances ?? []);
+      if ('selectedEventTypeId' in updates) setSelectedEventTypeId(updates.selectedEventTypeId ?? null);
+      if ('selectedTagIds' in updates) setSelectedTagIds(updates.selectedTagIds ?? new Set());
+      if ('selectedDistanceValues' in updates) setSelectedDistanceValues(updates.selectedDistanceValues ?? []);
+      if ('eventEditorExpanded' in updates) setEventEditorExpanded(updates.eventEditorExpanded ?? true);
+      if ('pendingScreenshots' in updates) setPendingScreenshots(updates.pendingScreenshots ?? []);
+      if ('pendingUrlChange' in updates) setPendingUrlChange(updates.pendingUrlChange ?? null);
     },
     showToast,
     buildAdminEditUrl,
@@ -2680,9 +2648,10 @@ async function init(): Promise<void> {
     queueEl: document.getElementById('uploadQueue') as HTMLElement,
     countEl: document.getElementById('uploadQueueCount') as HTMLElement,
     itemsEl: document.getElementById('uploadQueueItems') as HTMLElement,
-    getSettings: () => settings,
-    getCurrentMatchedEvent: () => currentMatchedEvent,
+    getSettings: () => getSettings(),
+    getCurrentMatchedEvent: () => getCurrentMatchedEvent(),
     setCurrentMatchedEventMedia: (media: unknown[]) => {
+      const currentMatchedEvent = getCurrentMatchedEvent();
       if (currentMatchedEvent) {
         currentMatchedEvent.media = media;
       }
@@ -2693,7 +2662,7 @@ async function init(): Promise<void> {
 
   // Initialize URL status module
   initUrlStatus({
-    settings,
+    settings: getSettings(),
     elements: {
       pageTitleEl,
       pageUrlEl,
@@ -2736,12 +2705,13 @@ async function init(): Promise<void> {
   await loadFromStorage();
 
   // Update url-status module with loaded settings (fixes stale reference)
-  updateUrlStatusSettings(settings);
+  updateUrlStatusSettings(getSettings());
 
   // Load filter state
   await loadFilterState();
 
   // Sync with API in background (don't block UI)
+  const settings = getSettings();
   syncWithApi(settings).then((result) => {
     if (result) {
       console.log('[EventAtlas] Sync completed:', {
@@ -2769,6 +2739,7 @@ async function init(): Promise<void> {
   if (eventListRefreshIntervalSetting) eventListRefreshIntervalSetting.value = String(settings.eventListRefreshInterval || 0);
 
   // Apply filter state to UI
+  const filterState = getFilterState();
   if (filterMissingTags) filterMissingTags.checked = filterState.missingTags;
   if (filterMissingDistances) filterMissingDistances.checked = filterState.missingDistances;
   if (filterState.mode) {

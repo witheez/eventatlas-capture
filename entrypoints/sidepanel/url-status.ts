@@ -9,6 +9,22 @@ import { escapeRegex, escapeHtml, normalizeUrl } from './utils';
 import { lookupUrl } from './api';
 import type { Settings } from './storage';
 import type { LookupResult, LinkDiscoveryData } from './api';
+import {
+  getSettings,
+  setSettings,
+  getCurrentLinkDiscovery,
+  setCurrentLinkDiscovery,
+  getExtractedPageLinks,
+  setExtractedPageLinks,
+  getNewDiscoveredLinks,
+  setNewDiscoveredLinks,
+  getSelectedNewLinks,
+  setSelectedNewLinks,
+  getLastKnownUrl,
+  setLastKnownUrl,
+  getPendingUrlChange,
+  setPendingUrlChange,
+} from './store';
 
 /**
  * Known EventAtlas domains (production, staging, local)
@@ -79,13 +95,6 @@ interface ChildLink {
   url: string;
 }
 
-// Module state
-let settings: Settings | null = null;
-let currentLinkDiscovery: LinkDiscoveryData | null = null;
-let extractedPageLinks: string[] = [];
-let newDiscoveredLinks: string[] = [];
-let selectedNewLinks = new Set<string>();
-
 // DOM element references (set during init)
 let elements: UrlStatusElements = {};
 
@@ -100,15 +109,15 @@ let callbacks: UrlStatusCallbacks = {
   showUnsavedDialog: null,
 };
 
-// Last known URL for unsaved changes detection
-let lastKnownUrl: string | null = null;
-let pendingUrlChange: string | null = null;
-
 /**
  * Initialize the URL status module
  */
 export function initUrlStatus(config: UrlStatusConfig): void {
-  settings = config.settings;
+  // Settings are now managed by the store, but we still accept initial settings
+  // to ensure they're set before first use
+  if (config.settings) {
+    setSettings(config.settings);
+  }
   elements = config.elements;
   callbacks = { ...callbacks, ...config.callbacks };
 }
@@ -117,42 +126,7 @@ export function initUrlStatus(config: UrlStatusConfig): void {
  * Update the settings reference
  */
 export function updateSettings(newSettings: Settings): void {
-  settings = newSettings;
-}
-
-/**
- * Get the current link discovery state
- */
-export function getCurrentLinkDiscovery(): LinkDiscoveryData | null {
-  return currentLinkDiscovery;
-}
-
-/**
- * Get the pending URL change
- */
-export function getPendingUrlChange(): string | null {
-  return pendingUrlChange;
-}
-
-/**
- * Set the pending URL change
- */
-export function setPendingUrlChange(url: string | null): void {
-  pendingUrlChange = url;
-}
-
-/**
- * Get the last known URL
- */
-export function getLastKnownUrl(): string | null {
-  return lastKnownUrl;
-}
-
-/**
- * Set the last known URL
- */
-export function setLastKnownUrl(url: string | null): void {
-  lastKnownUrl = url;
+  setSettings(newSettings);
 }
 
 /**
@@ -161,6 +135,7 @@ export function setLastKnownUrl(url: string | null): void {
 export function checkIfEventAtlasUrl(url: string): EventAtlasUrlMatch | null {
   // Build list of domains to check: known domains + settings.apiUrl
   const domainsToCheck = [...KNOWN_EVENTATLAS_DOMAINS];
+  const settings = getSettings();
   if (settings?.apiUrl) {
     domainsToCheck.push(settings.apiUrl.replace(/\/$/, ''));
   }
@@ -207,17 +182,18 @@ export async function updateTabInfo(): Promise<void> {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab) {
       const newUrl = tab.url || '';
+      const lastKnownUrl = getLastKnownUrl();
 
       // Check for unsaved changes when URL changes
       if (lastKnownUrl && lastKnownUrl !== newUrl && callbacks.hasUnsavedChanges?.()) {
-        pendingUrlChange = newUrl;
+        setPendingUrlChange(newUrl);
         callbacks.showUnsavedDialog?.();
         // Don't update UI yet, wait for user decision
         return;
       }
 
       // Update last known URL
-      lastKnownUrl = newUrl;
+      setLastKnownUrl(newUrl);
 
       if (elements.pageTitleEl) elements.pageTitleEl.textContent = tab.title || 'Unknown';
       if (elements.pageUrlEl) elements.pageUrlEl.textContent = newUrl;
@@ -354,6 +330,7 @@ export function hidePageInfoStatus(): void {
  * Update URL status indicator based on current tab URL
  */
 export async function updateUrlStatus(): Promise<void> {
+  const settings = getSettings();
   if (!settings?.apiUrl || !settings?.apiToken) {
     hidePageInfoStatus();
     callbacks.hideEventEditor?.();
@@ -445,7 +422,7 @@ export async function updateUrlStatus(): Promise<void> {
  * Show the link discovery view with data from lookup response
  */
 export function showLinkDiscoveryView(linkDiscoveryData: LinkDiscoveryData): void {
-  currentLinkDiscovery = linkDiscoveryData;
+  setCurrentLinkDiscovery(linkDiscoveryData);
 
   if (elements.discoverySourceName) {
     elements.discoverySourceName.textContent = linkDiscoveryData.organizer_name || 'Unknown Source';
@@ -464,9 +441,9 @@ export function showLinkDiscoveryView(linkDiscoveryData: LinkDiscoveryData): voi
     }
   }
 
-  extractedPageLinks = [];
-  newDiscoveredLinks = [];
-  selectedNewLinks = new Set();
+  setExtractedPageLinks([]);
+  setNewDiscoveredLinks([]);
+  setSelectedNewLinks(new Set());
   if (elements.linkComparisonResults) {
     elements.linkComparisonResults.style.display = 'none';
   }
@@ -483,13 +460,14 @@ export function hideLinkDiscoveryView(): void {
   if (elements.linkDiscoveryView) {
     elements.linkDiscoveryView.style.display = 'none';
   }
-  currentLinkDiscovery = null;
+  setCurrentLinkDiscovery(null);
 }
 
 /**
  * Scan the current page for links using chrome.scripting
  */
 export async function scanPageForLinks(): Promise<void> {
+  const currentLinkDiscovery = getCurrentLinkDiscovery();
   if (!currentLinkDiscovery) return;
 
   const btn = elements.scanPageLinksBtn;
@@ -507,7 +485,7 @@ export async function scanPageForLinks(): Promise<void> {
       args: [currentLinkDiscovery.url_pattern],
     });
 
-    extractedPageLinks = (results[0]?.result as string[]) || [];
+    setExtractedPageLinks((results[0]?.result as string[]) || []);
 
     compareLinksAndRender();
 
@@ -564,6 +542,7 @@ export function extractLinksFromPage(urlPattern: string | null): string[] {
  * Compare extracted links with known child links and render results
  */
 export function compareLinksAndRender(): void {
+  const currentLinkDiscovery = getCurrentLinkDiscovery();
   if (!currentLinkDiscovery) return;
 
   const knownUrls = new Set<string>();
@@ -574,12 +553,14 @@ export function compareLinksAndRender(): void {
     knownUrls.add(normalized);
   });
 
-  newDiscoveredLinks = extractedPageLinks.filter((url) => {
+  const extractedPageLinks = getExtractedPageLinks();
+  const newLinks = extractedPageLinks.filter((url) => {
     const normalized = normalizeUrl(url);
     return !knownUrls.has(normalized);
   });
 
-  selectedNewLinks = new Set(newDiscoveredLinks);
+  setNewDiscoveredLinks(newLinks);
+  setSelectedNewLinks(new Set(newLinks));
 
   renderLinkComparison(childLinks);
 }
@@ -588,6 +569,7 @@ export function compareLinksAndRender(): void {
  * Render the link comparison results
  */
 export function renderLinkComparison(childLinks: ChildLink[]): void {
+  const newDiscoveredLinks = getNewDiscoveredLinks();
   if (elements.newLinksCount) elements.newLinksCount.textContent = String(newDiscoveredLinks.length);
   if (elements.knownLinksCount) elements.knownLinksCount.textContent = String(childLinks.length);
 
@@ -608,6 +590,7 @@ export function renderLinkComparison(childLinks: ChildLink[]): void {
     elements.newLinksList.querySelectorAll('.new-link-checkbox').forEach((cb) => {
       cb.addEventListener('change', (e) => {
         const checkbox = e.target as HTMLInputElement;
+        const selectedNewLinks = getSelectedNewLinks();
         if (checkbox.checked) {
           selectedNewLinks.add(checkbox.dataset.url!);
         } else {
@@ -637,7 +620,7 @@ export function renderLinkComparison(childLinks: ChildLink[]): void {
  * Update the selected links count and button visibility
  */
 export function updateSelectedLinksCount(): void {
-  const count = selectedNewLinks.size;
+  const count = getSelectedNewLinks().size;
   if (elements.selectedLinksCountEl) elements.selectedLinksCountEl.textContent = String(count);
   if (elements.addNewLinksBtn) {
     elements.addNewLinksBtn.style.display = count > 0 ? 'block' : 'none';
@@ -649,7 +632,10 @@ export function updateSelectedLinksCount(): void {
  * Add selected new links to the pipeline via API
  */
 export async function addNewLinksToPipeline(): Promise<void> {
+  const selectedNewLinks = getSelectedNewLinks();
   const linksToAdd = Array.from(selectedNewLinks);
+  const currentLinkDiscovery = getCurrentLinkDiscovery();
+  const settings = getSettings();
   if (linksToAdd.length === 0 || !currentLinkDiscovery || !settings) return;
 
   const btn = elements.addNewLinksBtn;
@@ -687,7 +673,7 @@ export async function addNewLinksToPipeline(): Promise<void> {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = `Add <span id="selectedLinksCount">${selectedNewLinks.size}</span> Selected Links to Pipeline`;
+      btn.innerHTML = `Add <span id="selectedLinksCount">${getSelectedNewLinks().size}</span> Selected Links to Pipeline`;
     }
   }
 }
@@ -697,9 +683,9 @@ export async function addNewLinksToPipeline(): Promise<void> {
  */
 export function toggleSelectAllNewLinks(selectAll: boolean): void {
   if (selectAll) {
-    selectedNewLinks = new Set(newDiscoveredLinks);
+    setSelectedNewLinks(new Set(getNewDiscoveredLinks()));
   } else {
-    selectedNewLinks.clear();
+    setSelectedNewLinks(new Set());
   }
 
   if (elements.newLinksList) {

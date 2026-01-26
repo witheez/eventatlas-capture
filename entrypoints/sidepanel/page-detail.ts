@@ -7,6 +7,20 @@
 
 import { formatBytes, getDomain } from './utils';
 import type { Capture, Bundle } from './storage';
+import {
+  getCurrentView,
+  setCurrentView,
+  getCurrentBundle,
+  getCurrentBundleId,
+  getCurrentPageIndex,
+  setCurrentPageIndex,
+  getBundles,
+  getBundleById,
+  getSelectedImages,
+  setSelectedImages,
+  getTextExpanded,
+  setTextExpanded,
+} from './store';
 
 // Type definitions
 interface PageDetailDom {
@@ -35,21 +49,6 @@ interface PageDetailDom {
   metadataList: HTMLElement;
   screenshotModal: HTMLElement;
   screenshotModalImg: HTMLImageElement;
-}
-
-interface PageDetailState {
-  getCurrentView: () => string;
-  setCurrentView: (view: string) => void;
-  getCurrentBundle: () => Bundle | null;
-  getCurrentBundleId: () => string | null;
-  getCurrentPageIndex: () => number | null;
-  setCurrentPageIndex: (index: number | null) => void;
-  getBundles: () => Bundle[];
-  getBundleById: (id: string) => Bundle | undefined;
-  getSelectedImages: () => Set<string>;
-  setSelectedImages: (images: Set<string>) => void;
-  getTextExpanded: () => boolean;
-  setTextExpanded: (expanded: boolean) => void;
 }
 
 interface PageDetailCallbacks {

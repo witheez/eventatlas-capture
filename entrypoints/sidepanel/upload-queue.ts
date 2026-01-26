@@ -7,6 +7,13 @@
 
 import { generateId } from './utils';
 import type { Settings } from './storage';
+import {
+  getUploadQueue as getUploadQueueFromStore,
+  setUploadQueue,
+  addToUploadQueueState,
+  removeFromUploadQueueState,
+  getUploadQueueItem,
+} from './store';
 
 // Type definitions
 export interface QueueItem {
@@ -35,9 +42,6 @@ export interface MatchedEvent {
   id: number;
   media?: MediaAsset[];
 }
-
-// Internal queue state
-let uploadQueue: QueueItem[] = [];
 
 // DOM element references (set via init)
 let uploadQueueEl: HTMLElement | null = null;
@@ -80,7 +84,7 @@ export function initUploadQueue(config: UploadQueueConfig): void {
  * Get the current upload queue
  */
 export function getUploadQueue(): QueueItem[] {
-  return uploadQueue;
+  return getUploadQueueFromStore();
 }
 
 /**
@@ -126,7 +130,7 @@ export async function addToUploadQueue(eventId: number, eventName: string, image
     progress: 0,
   };
 
-  uploadQueue.push(queueItem);
+  addToUploadQueueState(queueItem);
   renderUploadQueue();
 
   // Re-render screenshots grid to show uploading item
@@ -201,7 +205,7 @@ export function uploadQueueItem(queueItem: QueueItem): void {
  * Update progress for a queue item
  */
 export function updateQueueItemProgress(id: string, progress: number): void {
-  const item = uploadQueue.find(q => q.id === id);
+  const item = getUploadQueueItem(id);
   if (item) {
     item.progress = progress;
     updateQueueItemUI(id);
@@ -219,7 +223,7 @@ export function updateQueueItemProgress(id: string, progress: number): void {
  * Mark queue item as complete
  */
 export function markQueueItemComplete(id: string, mediaAsset: MediaAsset | null): void {
-  const item = uploadQueue.find(q => q.id === id);
+  const item = getUploadQueueItem(id);
   if (item) {
     item.status = 'complete';
     item.progress = 100;
@@ -250,7 +254,7 @@ export function markQueueItemComplete(id: string, mediaAsset: MediaAsset | null)
  * Mark queue item as failed
  */
 export function markQueueItemFailed(id: string, error: string): void {
-  const item = uploadQueue.find(q => q.id === id);
+  const item = getUploadQueueItem(id);
   if (item) {
     item.status = 'failed';
     item.error = error;
@@ -263,7 +267,7 @@ export function markQueueItemFailed(id: string, error: string): void {
  * Retry a failed upload
  */
 export function retryQueueItem(id: string): void {
-  const item = uploadQueue.find(q => q.id === id);
+  const item = getUploadQueueItem(id);
   if (item && item.status === 'failed') {
     item.status = 'uploading';
     item.progress = 0;
@@ -277,7 +281,7 @@ export function retryQueueItem(id: string): void {
  * Remove item from upload queue
  */
 export function removeFromUploadQueue(id: string): void {
-  uploadQueue = uploadQueue.filter(q => q.id !== id);
+  removeFromUploadQueueState(id);
   renderUploadQueue();
 }
 
@@ -289,6 +293,7 @@ export function renderUploadQueue(): void {
     return;
   }
 
+  const uploadQueue = getUploadQueueFromStore();
   // Filter to only show active items (uploading or failed, or recently completed)
   const activeItems = uploadQueue.filter(q => q.status !== 'complete' || (q.completedAt && Date.now() - q.completedAt < 1500));
 
@@ -321,7 +326,7 @@ export function renderUploadQueue(): void {
   // Clear and rebuild items
   uploadQueueItemsEl.innerHTML = '';
 
-  uploadQueue.forEach(item => {
+  activeItems.forEach(item => {
     const itemEl = document.createElement('div');
     itemEl.className = `upload-queue-item ${item.status}`;
     itemEl.dataset.id = item.id;
@@ -381,7 +386,7 @@ export function renderUploadQueue(): void {
  * Update a single queue item's UI (for progress updates)
  */
 export function updateQueueItemUI(id: string): void {
-  const item = uploadQueue.find(q => q.id === id);
+  const item = getUploadQueueItem(id);
   if (!item) return;
 
   const itemEl = uploadQueueItemsEl?.querySelector(`[data-id="${id}"]`);
@@ -409,6 +414,6 @@ export function updateQueueItemUI(id: string): void {
  * Clear all items from upload queue (for testing/debug)
  */
 export function clearUploadQueue(): void {
-  uploadQueue = [];
+  setUploadQueue([]);
   renderUploadQueue();
 }
