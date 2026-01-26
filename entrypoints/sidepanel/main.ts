@@ -368,7 +368,6 @@ const unsavedDiscardBtn = document.getElementById('unsavedDiscardBtn') as HTMLBu
 const unsavedCancelBtn = document.getElementById('unsavedCancelBtn') as HTMLButtonElement;
 
 // DOM Elements - Event Navigation (in tab header)
-const tabNavArrows = document.getElementById('tabNavArrows') as HTMLElement | null;
 const prevEventBtn = document.getElementById('prevEventBtn') as HTMLButtonElement | null;
 const nextEventBtn = document.getElementById('nextEventBtn') as HTMLButtonElement | null;
 const tabNavProgress = document.getElementById('tabNavProgress') as HTMLElement | null;
@@ -2469,8 +2468,8 @@ function hideEventEditor(): void {
   if (eventEditorModule) {
     eventEditorModule.hideEventEditor();
   }
-  // Hide navigation when editor is hidden
-  if (tabNavArrows) tabNavArrows.style.display = 'none';
+  // Update navigation state (will disable buttons if no event)
+  updateEventNavigation();
 }
 
 function hasUnsavedChanges(): boolean {
@@ -2545,31 +2544,32 @@ function getCurrentEventIndex(): number {
 
 /**
  * Update the event navigation UI based on current position in list
+ * Always visible - buttons are disabled when no navigation available
  */
 function updateEventNavigation(): void {
   const cache = getEventListCache();
   const currentIndex = getCurrentEventIndex();
 
-  // Hide navigation if no event list or current event not in list
-  if (cache.length === 0 || currentIndex === -1) {
-    if (tabNavArrows) tabNavArrows.style.display = 'none';
-    return;
-  }
-
-  // Show navigation
-  if (tabNavArrows) tabNavArrows.style.display = 'flex';
-
-  // Update progress text (compact format: "3/47")
+  // Update progress text
   if (tabNavProgress) {
-    tabNavProgress.textContent = `${currentIndex + 1}/${cache.length}`;
+    if (cache.length === 0) {
+      tabNavProgress.textContent = '–/–';
+    } else if (currentIndex === -1) {
+      tabNavProgress.textContent = `–/${cache.length}`;
+    } else {
+      tabNavProgress.textContent = `${currentIndex + 1}/${cache.length}`;
+    }
   }
 
-  // Update button states
+  // Update button states - disable if can't navigate
+  const canGoPrev = currentIndex > 0;
+  const canGoNext = currentIndex >= 0 && currentIndex < cache.length - 1;
+
   if (prevEventBtn) {
-    prevEventBtn.disabled = currentIndex === 0;
+    prevEventBtn.disabled = !canGoPrev;
   }
   if (nextEventBtn) {
-    nextEventBtn.disabled = currentIndex === cache.length - 1;
+    nextEventBtn.disabled = !canGoNext;
   }
 }
 
