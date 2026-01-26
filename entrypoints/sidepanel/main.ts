@@ -337,6 +337,14 @@ const processorConfigSelect = document.getElementById(
 ) as HTMLSelectElement | null;
 const addAsChildBtn = document.getElementById('addAsChildBtn') as HTMLButtonElement | null;
 const addStandaloneBtn = document.getElementById('addStandaloneBtn') as HTMLButtonElement | null;
+const parentAutoProcess = document.getElementById('parentAutoProcess') as HTMLInputElement | null;
+const parentCleanUrls = document.getElementById('parentCleanUrls') as HTMLInputElement | null;
+const standaloneAutoProcess = document.getElementById(
+  'standaloneAutoProcess'
+) as HTMLInputElement | null;
+const standaloneCleanUrls = document.getElementById(
+  'standaloneCleanUrls'
+) as HTMLInputElement | null;
 
 // DOM Elements - Event Editor
 const _eventEditor = document.getElementById('eventEditor') as HTMLElement | null;
@@ -3028,6 +3036,10 @@ async function init(): Promise<void> {
       processorConfigSelect,
       addAsChildBtn,
       addStandaloneBtn,
+      parentAutoProcess,
+      parentCleanUrls,
+      standaloneAutoProcess,
+      standaloneCleanUrls,
     },
     {
       showToast,

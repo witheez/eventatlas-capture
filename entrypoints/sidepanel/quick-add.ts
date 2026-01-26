@@ -37,6 +37,11 @@ export interface QuickAddElements {
   processorConfigSelect: HTMLSelectElement | null;
   addAsChildBtn: HTMLButtonElement | null;
   addStandaloneBtn: HTMLButtonElement | null;
+  // Options checkboxes
+  parentAutoProcess: HTMLInputElement | null;
+  parentCleanUrls: HTMLInputElement | null;
+  standaloneAutoProcess: HTMLInputElement | null;
+  standaloneCleanUrls: HTMLInputElement | null;
 }
 
 export interface QuickAddCallbacks {
@@ -57,6 +62,10 @@ let elements: QuickAddElements = {
   processorConfigSelect: null,
   addAsChildBtn: null,
   addStandaloneBtn: null,
+  parentAutoProcess: null,
+  parentCleanUrls: null,
+  standaloneAutoProcess: null,
+  standaloneCleanUrls: null,
 };
 
 let callbacks: QuickAddCallbacks = {
@@ -241,10 +250,16 @@ async function handleAddAsChild(): Promise<void> {
     btn.textContent = 'Adding...';
   }
 
+  // Read checkbox values
+  const autoProcess = elements.parentAutoProcess?.checked ?? false;
+  const cleanUrls = elements.parentCleanUrls?.checked ?? true;
+
   const settings = getSettings();
   const result = await quickImport(settings, {
     url: currentUrl,
     parent_organizer_link_id: currentParentId,
+    auto_process: autoProcess,
+    clean_urls: cleanUrls,
   });
 
   if (btn) {
@@ -279,10 +294,16 @@ async function handleAddStandalone(): Promise<void> {
     btn.textContent = 'Adding...';
   }
 
+  // Read checkbox values
+  const autoProcess = elements.standaloneAutoProcess?.checked ?? false;
+  const cleanUrls = elements.standaloneCleanUrls?.checked ?? true;
+
   const settings = getSettings();
   const result = await quickImport(settings, {
     url: currentUrl,
     processor_configuration_id: parseInt(processorId, 10),
+    auto_process: autoProcess,
+    clean_urls: cleanUrls,
   });
 
   if (btn) {

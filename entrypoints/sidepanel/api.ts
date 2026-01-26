@@ -745,6 +745,8 @@ export async function quickImport(
     url: string;
     parent_organizer_link_id?: number;
     processor_configuration_id?: number;
+    clean_urls?: boolean;
+    auto_process?: boolean;
   }
 ): Promise<ApiResponse<QuickImportResult>> {
   if (!settings.apiUrl || !settings.apiToken) {

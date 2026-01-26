@@ -243,6 +243,16 @@
             <p>Will use: <span id="inheritedProcessorName"></span></p>
           </div>
         </div>
+        <div class="quick-add-options">
+          <label class="toggle-option">
+            <input type="checkbox" id="parentAutoProcess" />
+            <span class="toggle-label">Auto-process after import</span>
+          </label>
+          <label class="toggle-option">
+            <input type="checkbox" id="parentCleanUrls" checked />
+            <span class="toggle-label">Clean tracking params</span>
+          </label>
+        </div>
         <button id="addAsChildBtn" class="add-btn">Add to Pipeline</button>
       </div>
 
@@ -269,6 +279,16 @@
         <select id="processorConfigSelect" class="form-select">
           <option value="">Select processor...</option>
         </select>
+        <div class="quick-add-options">
+          <label class="toggle-option">
+            <input type="checkbox" id="standaloneAutoProcess" />
+            <span class="toggle-label">Auto-process after import</span>
+          </label>
+          <label class="toggle-option">
+            <input type="checkbox" id="standaloneCleanUrls" checked />
+            <span class="toggle-label">Clean tracking params</span>
+          </label>
+        </div>
         <button id="addStandaloneBtn" class="add-btn" disabled>Add to Pipeline</button>
       </div>
     </div>
