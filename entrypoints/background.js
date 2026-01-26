@@ -6,6 +6,8 @@
  * Shows badge indicators for known URLs from EventAtlas sync data.
  */
 
+import { normalizeUrl } from '@/utils/url.js';
+
 export default defineBackground(() => {
   // Storage key for sync data from EventAtlas
   const SYNC_DATA_KEY = 'eventatlas_sync_data';
@@ -17,31 +19,6 @@ export default defineBackground(() => {
     link_discovery: { text: '\u2295', color: '#3b82f6' },  // Blue circled plus - discovery page
     no_match: { text: '', color: '' }                      // No badge
   };
-
-  /**
-   * Normalize URL for comparison
-   * @param {string} url - URL to normalize
-   * @returns {string} Normalized URL (hostname + path without trailing slash)
-   * Special case: heyjom.com requires www. prefix due to their redirect issues
-   */
-  function normalizeUrl(url) {
-    try {
-      const parsed = new URL(url);
-      let hostname = parsed.hostname.toLowerCase();
-
-      // heyjom.com requires www. - add it if missing
-      if (hostname === 'heyjom.com') {
-        hostname = 'www.heyjom.com';
-      }
-
-      // Strip www. for normalization (except heyjom.com which we just fixed)
-      let normalized = hostname.replace(/^www\./, '');
-      normalized += parsed.pathname.replace(/\/$/, '');
-      return normalized.toLowerCase();
-    } catch (e) {
-      return url.toLowerCase();
-    }
-  }
 
   /**
    * Update badge for a specific tab based on its URL

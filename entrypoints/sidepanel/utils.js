@@ -4,6 +4,9 @@
  * Common utility functions used throughout the sidepanel.
  */
 
+// Re-export shared URL utilities
+export { normalizeUrl, getDomain } from '@/utils/url.js';
+
 /**
  * Format bytes to human-readable string
  */
@@ -13,40 +16,6 @@ export function formatBytes(bytes) {
   const sizes = ['B', 'KB', 'MB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-/**
- * Extract domain from URL
- */
-export function getDomain(url) {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-}
-
-/**
- * Normalize URL for comparison (strips protocol, www, query params, fragment, trailing slash)
- * Special case: heyjom.com requires www. prefix due to their redirect issues
- */
-export function normalizeUrl(url) {
-  try {
-    const parsed = new URL(url);
-    let hostname = parsed.hostname.toLowerCase();
-
-    // heyjom.com requires www. - add it if missing
-    if (hostname === 'heyjom.com') {
-      hostname = 'www.heyjom.com';
-    }
-
-    // Strip www. for normalization (except heyjom.com which we just fixed)
-    let normalized = hostname.replace(/^www\./, '');
-    normalized += parsed.pathname.replace(/\/$/, '');
-    return normalized.toLowerCase();
-  } catch (e) {
-    return url.toLowerCase();
-  }
 }
 
 /**
