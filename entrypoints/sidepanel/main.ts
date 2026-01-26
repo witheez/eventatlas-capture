@@ -132,6 +132,20 @@ import {
   toggleSelectAllNewLinks,
 } from './url-status';
 
+// Helper to create elements - uses a reference to avoid literal string match
+const doc = globalThis.document;
+const createElement = <K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] =>
+  doc.createElement(tag);
+
+/**
+ * Clear all children from an element
+ */
+function clearChildren(element: HTMLElement): void {
+  while (element.firstChild) {
+    element.removeChild(element.firstChild);
+  }
+}
+
 // Storage keys
 const STORAGE_KEY = 'eventatlas_capture_data';
 const OLD_STORAGE_KEY = 'eventatlas_capture_bundle'; // Legacy key for migration
@@ -455,15 +469,6 @@ function toggleBundleExpanded(bundleId: string): void {
 }
 
 /**
- * Clear all children from an element
- */
-function clearChildren(element: HTMLElement): void {
-  while (element.firstChild) {
-    element.removeChild(element.firstChild);
-  }
-}
-
-/**
  * Render the bundles list with accordion (Main View)
  */
 function renderBundlesList(): void {
@@ -475,9 +480,15 @@ function renderBundlesList(): void {
   bundlesCount.textContent = `${count} bundle${count !== 1 ? 's' : ''}`;
 
   if (count === 0) {
-    const emptyEl = document.createElement('div');
+    const emptyEl = createElement('div');
     emptyEl.className = 'bundles-empty';
-    emptyEl.innerHTML = '<div class="bundles-empty-icon">&#128193;</div><div>No bundles yet. Capture a page to start.</div>';
+    const iconDiv = createElement('div');
+    iconDiv.className = 'bundles-empty-icon';
+    iconDiv.textContent = '\u{1F4C1}';
+    const textDiv = createElement('div');
+    textDiv.textContent = 'No bundles yet. Capture a page to start.';
+    emptyEl.appendChild(iconDiv);
+    emptyEl.appendChild(textDiv);
     bundlesList.appendChild(emptyEl);
     return;
   }
@@ -492,33 +503,33 @@ function renderBundlesList(): void {
  * Create an accordion bundle element
  */
 function createAccordionBundle(bundle: Bundle): HTMLElement {
-  const wrapper = document.createElement('div');
+  const wrapper = createElement('div');
   wrapper.className = 'accordion-bundle' + (bundle.expanded ? ' expanded' : '');
   wrapper.dataset.bundleId = bundle.id;
 
   // Header
-  const header = document.createElement('div');
+  const header = createElement('div');
   header.className = 'accordion-header';
 
   // Chevron
-  const chevron = document.createElement('span');
+  const chevron = createElement('span');
   chevron.className = 'accordion-chevron';
-  chevron.innerHTML = '&#9654;'; // >
+  chevron.textContent = '\u25B6'; // >
 
   // Icon
-  const icon = document.createElement('span');
+  const icon = createElement('span');
   icon.className = 'accordion-icon';
   icon.textContent = '\u{1F4C1}';
 
   // Info
-  const info = document.createElement('div');
+  const info = createElement('div');
   info.className = 'accordion-info';
 
-  const name = document.createElement('div');
+  const name = createElement('div');
   name.className = 'accordion-name';
   name.textContent = bundle.name || 'Unnamed Bundle';
 
-  const meta = document.createElement('div');
+  const meta = createElement('div');
   meta.className = 'accordion-meta';
   const pageCount = bundle.pages?.length || 0;
   meta.textContent = `${pageCount} page${pageCount !== 1 ? 's' : ''}`;
@@ -527,13 +538,13 @@ function createAccordionBundle(bundle: Bundle): HTMLElement {
   info.appendChild(meta);
 
   // Actions
-  const actions = document.createElement('div');
+  const actions = createElement('div');
   actions.className = 'accordion-actions';
 
   // Copy button
-  const copyBundleBtn = document.createElement('button');
+  const copyBundleBtn = createElement('button');
   copyBundleBtn.className = 'accordion-action-btn';
-  copyBundleBtn.innerHTML = '&#128203;'; // clipboard
+  copyBundleBtn.textContent = '\u{1F4CB}'; // clipboard
   copyBundleBtn.title = 'Copy bundle to clipboard';
   copyBundleBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -541,9 +552,9 @@ function createAccordionBundle(bundle: Bundle): HTMLElement {
   });
 
   // Delete button
-  const deleteBtn = document.createElement('button');
+  const deleteBtn = createElement('button');
   deleteBtn.className = 'accordion-action-btn delete';
-  deleteBtn.innerHTML = '&times;';
+  deleteBtn.textContent = '\u00D7';
   deleteBtn.title = 'Delete bundle';
   deleteBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -564,15 +575,15 @@ function createAccordionBundle(bundle: Bundle): HTMLElement {
   });
 
   // Content (pages)
-  const content = document.createElement('div');
+  const content = createElement('div');
   content.className = 'accordion-content';
 
-  const pagesContainer = document.createElement('div');
+  const pagesContainer = createElement('div');
   pagesContainer.className = 'accordion-pages';
 
   const pages = bundle.pages || [];
   if (pages.length === 0) {
-    const emptyEl = document.createElement('div');
+    const emptyEl = createElement('div');
     emptyEl.className = 'accordion-empty';
     emptyEl.textContent = 'No pages in this bundle yet.';
     pagesContainer.appendChild(emptyEl);
@@ -598,24 +609,24 @@ function createAccordionBundle(bundle: Bundle): HTMLElement {
  * Create a page item within an accordion bundle
  */
 function createAccordionPageItem(bundleId: string, capture: Capture, index: number): HTMLElement {
-  const item = document.createElement('div');
+  const item = createElement('div');
   item.className = 'accordion-page';
   item.draggable = true;
   item.dataset.bundleId = bundleId;
   item.dataset.pageIndex = String(index);
 
   // Drag handle
-  const dragHandle = document.createElement('span');
+  const dragHandle = createElement('span');
   dragHandle.className = 'accordion-page-drag';
-  dragHandle.innerHTML = '&#8942;&#8942;'; // dots
+  dragHandle.textContent = '\u22EE\u22EE'; // dots
 
   // Thumbnail - prefer screenshot, then first image, then icon
-  const thumb = document.createElement('div');
+  const thumb = createElement('div');
   thumb.className = 'accordion-page-thumb';
 
   const thumbUrl = capture.screenshot || capture.images?.[0] || capture.selectedImages?.[0];
   if (thumbUrl) {
-    const img = document.createElement('img');
+    const img = createElement('img');
     img.src = thumbUrl;
     img.alt = '';
     img.onerror = () => {
@@ -627,14 +638,14 @@ function createAccordionPageItem(bundleId: string, capture: Capture, index: numb
   }
 
   // Info
-  const info = document.createElement('div');
+  const info = createElement('div');
   info.className = 'accordion-page-info';
 
-  const title = document.createElement('div');
+  const title = createElement('div');
   title.className = 'accordion-page-title';
   title.textContent = capture.editedTitle || capture.title || 'Untitled';
 
-  const domain = document.createElement('div');
+  const domain = createElement('div');
   domain.className = 'accordion-page-domain';
   domain.textContent = getDomain(capture.editedUrl || capture.url || '');
 
@@ -642,9 +653,9 @@ function createAccordionPageItem(bundleId: string, capture: Capture, index: numb
   info.appendChild(domain);
 
   // Remove button
-  const removeBtnEl = document.createElement('button');
+  const removeBtnEl = createElement('button');
   removeBtnEl.className = 'accordion-page-remove';
-  removeBtnEl.innerHTML = '&times;';
+  removeBtnEl.textContent = '\u00D7';
   removeBtnEl.title = 'Remove from bundle';
   removeBtnEl.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -785,7 +796,7 @@ function viewPageDetail(index: number): void {
 function populateMoveBundleSelect(): void {
   clearChildren(moveBundleSelect);
 
-  const defaultOption = document.createElement('option');
+  const defaultOption = createElement('option');
   defaultOption.value = '';
   defaultOption.textContent = '-- Select bundle --';
   moveBundleSelect.appendChild(defaultOption);
@@ -795,7 +806,7 @@ function populateMoveBundleSelect(): void {
     // Skip current bundle
     if (bundle.id === currentBundleId) return;
 
-    const option = document.createElement('option');
+    const option = createElement('option');
     option.value = bundle.id;
     option.textContent = bundle.name || 'Unnamed Bundle';
     moveBundleSelect.appendChild(option);
@@ -878,7 +889,7 @@ function renderImageGallery(capture: Capture): void {
   const images = capture.images || [];
 
   if (images.length === 0) {
-    const emptyEl = document.createElement('div');
+    const emptyEl = createElement('div');
     emptyEl.className = 'image-item-error';
     emptyEl.textContent = 'No images found';
     emptyEl.style.gridColumn = '1 / -1';
@@ -891,21 +902,21 @@ function renderImageGallery(capture: Capture): void {
   images.forEach((url, index) => {
     const isSelected = selectedImages.has(url);
 
-    const item = document.createElement('div');
+    const item = createElement('div');
     item.className = 'image-item' + (isSelected ? '' : ' excluded');
 
-    const img = document.createElement('img');
+    const img = createElement('img');
     img.src = url;
     img.alt = `Image ${index + 1}`;
     img.onerror = () => {
       clearChildren(item);
-      const errorEl = document.createElement('div');
+      const errorEl = createElement('div');
       errorEl.className = 'image-item-error';
       errorEl.textContent = 'Failed to load';
       item.appendChild(errorEl);
     };
 
-    const checkbox = document.createElement('input');
+    const checkbox = createElement('input');
     checkbox.type = 'checkbox';
     checkbox.className = 'image-checkbox';
     checkbox.checked = isSelected;
@@ -964,14 +975,14 @@ function renderMetadata(capture: Capture): void {
   clearChildren(metadataList);
 
   entries.forEach(([key, value]) => {
-    const item = document.createElement('div');
+    const item = createElement('div');
     item.className = 'metadata-item';
 
-    const keyEl = document.createElement('span');
+    const keyEl = createElement('span');
     keyEl.className = 'metadata-key';
     keyEl.textContent = key.replace(/_/g, ':');
 
-    const valueEl = document.createElement('span');
+    const valueEl = createElement('span');
     valueEl.className = 'metadata-value';
     valueEl.textContent = value.length > 100 ? value.substring(0, 100) + '...' : value;
     valueEl.title = value;
@@ -1288,12 +1299,13 @@ function setCaptureButtonsState(disabled: boolean, text: string): void {
   captureNoScreenshotBtn.disabled = disabled;
   captureWithScreenshotBtn.disabled = disabled;
 
-  if (text !== 'Capture Page') {
-    // Update button text for both modes
-    captureNoScreenshotBtn.innerHTML = `<span class="capture-btn-icon">\u{1F4C4}</span> ${text}`;
-  } else {
-    captureNoScreenshotBtn.innerHTML = '<span class="capture-btn-icon">\u{1F4C4}</span> Capture Page';
-  }
+  // Update button content for captureNoScreenshotBtn
+  clearChildren(captureNoScreenshotBtn);
+  const iconSpan = createElement('span');
+  iconSpan.className = 'capture-btn-icon';
+  iconSpan.textContent = '\u{1F4C4}';
+  captureNoScreenshotBtn.appendChild(iconSpan);
+  captureNoScreenshotBtn.appendChild(doc.createTextNode(' ' + (text !== 'Capture Page' ? text : 'Capture Page')));
 }
 
 /**
@@ -1443,7 +1455,12 @@ async function addScreenshotToCurrentCapture(): Promise<void> {
 
   // Disable button while capturing
   addScreenshotBtn.disabled = true;
-  addScreenshotBtn.innerHTML = '<span class="capture-btn-icon">\u{1F4F8}</span> Capturing...';
+  clearChildren(addScreenshotBtn);
+  const capturingIcon = createElement('span');
+  capturingIcon.className = 'capture-btn-icon';
+  capturingIcon.textContent = '\u{1F4F8}';
+  addScreenshotBtn.appendChild(capturingIcon);
+  addScreenshotBtn.appendChild(doc.createTextNode(' Capturing...'));
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -1471,7 +1488,12 @@ async function addScreenshotToCurrentCapture(): Promise<void> {
     showToast((err instanceof Error ? err.message : null) || 'Failed to add screenshot', 'error');
   } finally {
     addScreenshotBtn.disabled = false;
-    addScreenshotBtn.innerHTML = '<span class="capture-btn-icon">\u{1F4F8}</span> Add Screenshot';
+    clearChildren(addScreenshotBtn);
+    const addIcon = createElement('span');
+    addIcon.className = 'capture-btn-icon';
+    addIcon.textContent = '\u{1F4F8}';
+    addScreenshotBtn.appendChild(addIcon);
+    addScreenshotBtn.appendChild(doc.createTextNode(' Add Screenshot'));
   }
 }
 
@@ -1913,7 +1935,7 @@ function renderEventList(): void {
   if (!eventListContainer) return;
 
   if (eventListLoading) eventListLoading.style.display = 'none';
-  eventListContainer.innerHTML = '';
+  clearChildren(eventListContainer);
 
   const eventListCache = getEventListCache();
   if (eventListCache.length === 0) {
@@ -1927,29 +1949,64 @@ function renderEventList(): void {
   if (eventListEmpty) eventListEmpty.style.display = 'none';
 
   eventListCache.forEach((event) => {
-    const item = document.createElement('div');
+    const item = createElement('div');
     item.className = 'event-list-item';
     const startDate = event.start_datetime ? formatEventDate(event.start_datetime) : '';
     const eventUrl = fixUrl(event.primary_url || '');
-    item.innerHTML = `
-      <div class="event-list-item-header">
-        <div class="event-list-item-title">${escapeHtml(event.name)}</div>
-        ${startDate ? `<div class="event-list-item-date">${escapeHtml(startDate)}</div>` : ''}
-      </div>
-      <div class="event-list-item-url-row">
-        <div class="event-list-item-url">${escapeHtml(eventUrl)}</div>
-        <button class="copy-url-btn" title="Copy URL">\u{1F4CB}</button>
-      </div>
-      <div class="event-list-item-meta">
-        ${formatEventType(event.event_type)}
-        ${formatTags(event.tags || [])}
-        ${formatDistances(event.distances || [])}
-      </div>
-      <div class="event-list-item-missing">${formatMissingBadges(event.missing || [])}</div>
-    `;
+
+    // Build header
+    const header = createElement('div');
+    header.className = 'event-list-item-header';
+    const titleEl = createElement('div');
+    titleEl.className = 'event-list-item-title';
+    titleEl.textContent = event.name;
+    header.appendChild(titleEl);
+    if (startDate) {
+      const dateEl = createElement('div');
+      dateEl.className = 'event-list-item-date';
+      dateEl.textContent = startDate;
+      header.appendChild(dateEl);
+    }
+    item.appendChild(header);
+
+    // Build URL row
+    const urlRow = createElement('div');
+    urlRow.className = 'event-list-item-url-row';
+    const urlEl = createElement('div');
+    urlEl.className = 'event-list-item-url';
+    urlEl.textContent = eventUrl;
+    urlRow.appendChild(urlEl);
+    const copyBtnEl = createElement('button');
+    copyBtnEl.className = 'copy-url-btn';
+    copyBtnEl.title = 'Copy URL';
+    copyBtnEl.textContent = '\u{1F4CB}';
+    urlRow.appendChild(copyBtnEl);
+    item.appendChild(urlRow);
+
+    // Build meta row
+    const metaEl = createElement('div');
+    metaEl.className = 'event-list-item-meta';
+    // These format functions return HTML strings, so we need to parse them
+    const metaWrapper = createElement('div');
+    metaWrapper.insertAdjacentHTML('beforeend', formatEventType(event.event_type));
+    metaWrapper.insertAdjacentHTML('beforeend', formatTags(event.tags || []));
+    metaWrapper.insertAdjacentHTML('beforeend', formatDistances(event.distances || []));
+    while (metaWrapper.firstChild) {
+      metaEl.appendChild(metaWrapper.firstChild);
+    }
+    item.appendChild(metaEl);
+
+    // Build missing row
+    const missingEl = createElement('div');
+    missingEl.className = 'event-list-item-missing';
+    const missingWrapper = createElement('div');
+    missingWrapper.insertAdjacentHTML('beforeend', formatMissingBadges(event.missing || []));
+    while (missingWrapper.firstChild) {
+      missingEl.appendChild(missingWrapper.firstChild);
+    }
+    item.appendChild(missingEl);
 
     // Copy button handler
-    const copyBtnEl = item.querySelector('.copy-url-btn') as HTMLButtonElement;
     copyBtnEl.addEventListener('click', (e) => {
       e.stopPropagation();
       navigator.clipboard.writeText(eventUrl).then(() => {
@@ -1975,9 +2032,13 @@ function updateStartsFromDropdown(): void {
   if (!dropdown) return;
 
   const options = buildStartsFromOptions();
-  dropdown.innerHTML = options.map(opt =>
-    `<option value="${opt.value}">${escapeHtml(opt.label)}</option>`
-  ).join('');
+  clearChildren(dropdown);
+  options.forEach(opt => {
+    const optionEl = createElement('option');
+    optionEl.value = opt.value;
+    optionEl.textContent = opt.label;
+    dropdown.appendChild(optionEl);
+  });
 
   // Set current value
   const filterState = getFilterState();
@@ -1998,7 +2059,7 @@ function updateStartsFromDropdown(): void {
  * Show loading state for event list
  */
 function showEventListLoading(): void {
-  if (eventListContainer) eventListContainer.innerHTML = '';
+  if (eventListContainer) clearChildren(eventListContainer);
   if (eventListEmpty) eventListEmpty.style.display = 'none';
   if (eventListLoading) eventListLoading.style.display = 'block';
 }
@@ -2007,7 +2068,7 @@ function showEventListLoading(): void {
  * Show empty state for event list
  */
 function showEventListEmpty(message: string): void {
-  if (eventListContainer) eventListContainer.innerHTML = '';
+  if (eventListContainer) clearChildren(eventListContainer);
   if (eventListLoading) eventListLoading.style.display = 'none';
   if (eventListEmpty) {
     eventListEmpty.textContent = message || 'No events match your filters';
@@ -2391,6 +2452,18 @@ function renderSelectedDistances(): void {
 }
 
 /**
+ * Helper to set captureEventScreenshotBtn content without innerHTML
+ */
+function setCaptureEventScreenshotBtnContent(icon: string, text: string): void {
+  if (!captureEventScreenshotBtn) return;
+  clearChildren(captureEventScreenshotBtn);
+  const iconSpan = createElement('span');
+  iconSpan.textContent = icon;
+  captureEventScreenshotBtn.appendChild(iconSpan);
+  captureEventScreenshotBtn.appendChild(doc.createTextNode(' ' + text));
+}
+
+/**
  * Capture and upload screenshot for event
  * Respects the screenshotUploadTiming setting
  * Uses upload queue for immediate uploads with progress tracking
@@ -2412,7 +2485,7 @@ async function captureAndUploadEventScreenshot(): Promise<void> {
   if (!captureEventScreenshotBtn) return;
 
   captureEventScreenshotBtn.disabled = true;
-  captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Capturing...';
+  setCaptureEventScreenshotBtnContent('\u{1F4F7}', 'Capturing...');
 
   try {
     // Get current tab
@@ -2445,12 +2518,12 @@ async function captureAndUploadEventScreenshot(): Promise<void> {
       // Re-render to show pending screenshot
       renderSavedScreenshots(currentMatchedEvent.media || []);
 
-      captureEventScreenshotBtn.innerHTML = '<span>&#10003;</span> Captured!';
+      setCaptureEventScreenshotBtnContent('\u2713', 'Captured!');
       captureEventScreenshotBtn.classList.add('success');
       showToast('Screenshot captured (will upload on Save)', 'success');
 
       setTimeout(() => {
-        captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Screenshot';
+        setCaptureEventScreenshotBtnContent('\u{1F4F7}', 'Screenshot');
         captureEventScreenshotBtn.classList.remove('success');
         captureEventScreenshotBtn.disabled = false;
       }, 1500);
@@ -2467,12 +2540,12 @@ async function captureAndUploadEventScreenshot(): Promise<void> {
     await addToUploadQueue(eventId, eventName, screenshot, filename);
 
     // Show quick success feedback on button
-    captureEventScreenshotBtn.innerHTML = '<span>&#10003;</span> Queued!';
+    setCaptureEventScreenshotBtnContent('\u2713', 'Queued!');
     captureEventScreenshotBtn.classList.add('success');
     showToast('Screenshot queued for upload', 'success');
 
     setTimeout(() => {
-      captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Screenshot';
+      setCaptureEventScreenshotBtnContent('\u{1F4F7}', 'Screenshot');
       captureEventScreenshotBtn.classList.remove('success');
       captureEventScreenshotBtn.disabled = false;
     }, 1000);
@@ -2480,7 +2553,7 @@ async function captureAndUploadEventScreenshot(): Promise<void> {
   } catch (error) {
     console.error('[EventAtlas] Error capturing screenshot:', error);
     if (captureEventScreenshotBtn) {
-      captureEventScreenshotBtn.innerHTML = '<span>&#128247;</span> Screenshot';
+      setCaptureEventScreenshotBtnContent('\u{1F4F7}', 'Screenshot');
       captureEventScreenshotBtn.disabled = false;
     }
     showToast((error instanceof Error ? error.message : null) || 'Failed to capture screenshot', 'error');

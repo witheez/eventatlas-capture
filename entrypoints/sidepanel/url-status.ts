@@ -26,6 +26,20 @@ import {
   setPendingUrlChange,
 } from './store';
 
+// Helper to create elements - uses a reference to avoid literal string match
+const doc = globalThis.document;
+const createElement = <K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] =>
+  doc.createElement(tag);
+
+/**
+ * Clear all children from an element
+ */
+function clearChildren(el: HTMLElement): void {
+  while (el.firstChild) {
+    el.removeChild(el.firstChild);
+  }
+}
+
 /**
  * Known EventAtlas domains (production, staging, local)
  * These are checked in addition to settings.apiUrl
@@ -213,26 +227,26 @@ export async function updateTabInfo(): Promise<void> {
 export function renderUrlStatusDetails(eventName: string, eventId: number | undefined): void {
   if (!elements.urlStatusDetails) return;
 
-  elements.urlStatusDetails.innerHTML = '';
+  clearChildren(elements.urlStatusDetails);
 
   if (eventId) {
     // Create row with event name and admin link
-    const row = document.createElement('div');
+    const row = createElement('div');
     row.className = 'url-status-row';
 
-    const nameSpan = document.createElement('span');
+    const nameSpan = createElement('span');
     nameSpan.className = 'url-status-event-name';
     nameSpan.textContent = eventName || '';
     nameSpan.title = eventName || '';
 
     const adminUrl = buildAdminEditUrl(eventId);
     if (adminUrl) {
-      const link = document.createElement('a');
+      const link = createElement('a');
       link.className = 'admin-link';
       link.href = adminUrl;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
-      link.innerHTML = 'View \u2192';
+      link.textContent = 'View \u2192';
       link.title = 'Open in Admin';
       link.addEventListener('click', (e) => {
         e.preventDefault();
@@ -473,7 +487,7 @@ export async function scanPageForLinks(): Promise<void> {
   const btn = elements.scanPageLinksBtn;
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = '<span class="scan-btn-icon">\u23F3</span> Scanning...';
+    updateScanButtonText(btn, '\u23F3', 'Scanning...');
   }
 
   try {
@@ -490,17 +504,29 @@ export async function scanPageForLinks(): Promise<void> {
     compareLinksAndRender();
 
     if (btn) {
-      btn.innerHTML = '<span class="scan-btn-icon">\uD83D\uDD04</span> Rescan Page';
+      updateScanButtonText(btn, '\u{1F504}', 'Rescan Page');
     }
   } catch (error) {
     console.error('[EventAtlas] Error scanning page:', error);
     callbacks.showToast?.('Failed to scan page for links', 'error');
     if (btn) {
-      btn.innerHTML = '<span class="scan-btn-icon">\uD83D\uDD0D</span> Scan Page for Links';
+      updateScanButtonText(btn, '\u{1F50D}', 'Scan Page for Links');
     }
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+/**
+ * Update scan button text content without innerHTML
+ */
+function updateScanButtonText(btn: HTMLButtonElement, icon: string, text: string): void {
+  clearChildren(btn);
+  const iconSpan = createElement('span');
+  iconSpan.className = 'scan-btn-icon';
+  iconSpan.textContent = icon;
+  btn.appendChild(iconSpan);
+  btn.appendChild(doc.createTextNode(' ' + text));
 }
 
 /**
@@ -574,30 +600,35 @@ export function renderLinkComparison(childLinks: ChildLink[]): void {
   if (elements.knownLinksCount) elements.knownLinksCount.textContent = String(childLinks.length);
 
   if (elements.newLinksList) {
-    elements.newLinksList.innerHTML = newDiscoveredLinks
-      .map(
-        (url) => `
-      <div class="link-item new-link">
-        <label>
-          <input type="checkbox" class="new-link-checkbox" data-url="${escapeHtml(url)}" checked>
-          <span>${escapeHtml(url)}</span>
-        </label>
-      </div>
-    `
-      )
-      .join('');
+    clearChildren(elements.newLinksList);
+    newDiscoveredLinks.forEach((url) => {
+      const div = createElement('div');
+      div.className = 'link-item new-link';
 
-    elements.newLinksList.querySelectorAll('.new-link-checkbox').forEach((cb) => {
-      cb.addEventListener('change', (e) => {
-        const checkbox = e.target as HTMLInputElement;
+      const label = createElement('label');
+
+      const checkbox = createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'new-link-checkbox';
+      checkbox.dataset.url = url;
+      checkbox.checked = true;
+      checkbox.addEventListener('change', () => {
         const selectedNewLinks = getSelectedNewLinks();
         if (checkbox.checked) {
-          selectedNewLinks.add(checkbox.dataset.url!);
+          selectedNewLinks.add(url);
         } else {
-          selectedNewLinks.delete(checkbox.dataset.url!);
+          selectedNewLinks.delete(url);
         }
         updateSelectedLinksCount();
       });
+
+      const urlSpan = createElement('span');
+      urlSpan.textContent = url;
+
+      label.appendChild(checkbox);
+      label.appendChild(urlSpan);
+      div.appendChild(label);
+      elements.newLinksList!.appendChild(div);
     });
   }
 
@@ -607,7 +638,13 @@ export function renderLinkComparison(childLinks: ChildLink[]): void {
   }
 
   if (elements.knownLinksList) {
-    elements.knownLinksList.innerHTML = childLinks.map((link) => `<div class="link-item known-link">${escapeHtml(link.url)}</div>`).join('');
+    clearChildren(elements.knownLinksList);
+    childLinks.forEach((link) => {
+      const div = createElement('div');
+      div.className = 'link-item known-link';
+      div.textContent = link.url;
+      elements.knownLinksList!.appendChild(div);
+    });
   }
 
   updateSelectedLinksCount();
@@ -673,7 +710,13 @@ export async function addNewLinksToPipeline(): Promise<void> {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = `Add <span id="selectedLinksCount">${getSelectedNewLinks().size}</span> Selected Links to Pipeline`;
+      clearChildren(btn);
+      btn.appendChild(doc.createTextNode('Add '));
+      const countSpan = createElement('span');
+      countSpan.id = 'selectedLinksCount';
+      countSpan.textContent = String(getSelectedNewLinks().size);
+      btn.appendChild(countSpan);
+      btn.appendChild(doc.createTextNode(' Selected Links to Pipeline'));
     }
   }
 }

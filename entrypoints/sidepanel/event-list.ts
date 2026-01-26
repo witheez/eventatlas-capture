@@ -283,6 +283,15 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
   }
 
   /**
+   * Clear all children from an element
+   */
+  function clearChildren(el: HTMLElement): void {
+    while (el.firstChild) {
+      el.removeChild(el.firstChild);
+    }
+  }
+
+  /**
    * Render the event list
    */
   function renderEventList(): void {
@@ -291,7 +300,7 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
     const cache = getState('eventListCache');
 
     if (eventListLoading) eventListLoading.style.display = 'none';
-    eventListContainer.innerHTML = '';
+    clearChildren(eventListContainer);
 
     if (cache.length === 0) {
       if (eventListEmpty) {
@@ -304,36 +313,100 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
     if (eventListEmpty) eventListEmpty.style.display = 'none';
 
     cache.forEach((event) => {
-      const item = document.createElement('div');
-      item.className = 'event-list-item';
       const startDate = event.start_datetime ? formatEventDate(event.start_datetime) : '';
       const eventUrl = fixUrl(event.primary_url || '');
-      item.innerHTML = `
-        <div class="event-list-item-header">
-          <div class="event-list-item-title">${escapeHtml(event.name)}</div>
-          ${startDate ? `<div class="event-list-item-date">${escapeHtml(startDate)}</div>` : ''}
-        </div>
-        <div class="event-list-item-url-row">
-          <div class="event-list-item-url">${escapeHtml(eventUrl)}</div>
-          <button class="copy-url-btn" title="Copy URL">📋</button>
-        </div>
-        <div class="event-list-item-meta">
-          ${formatEventType(event.event_type)}
-          ${formatTags(event.tags || [])}
-          ${formatDistances(event.distances || [])}
-        </div>
-        <div class="event-list-item-missing">${formatMissingBadges(event.missing || [])}</div>
-      `;
 
-      // Copy button handler
-      const copyBtn = item.querySelector('.copy-url-btn') as HTMLButtonElement;
+      // Create event list item using Preact rendering via render module
+      // For now, use the existing HTML container which will be populated by Preact
+      // This module is being deprecated in favor of Preact components
+      const item = eventListContainer.ownerDocument.createElement('div');
+      item.className = 'event-list-item';
+
+      // Header
+      const header = item.ownerDocument.createElement('div');
+      header.className = 'event-list-item-header';
+
+      const title = item.ownerDocument.createElement('div');
+      title.className = 'event-list-item-title';
+      title.textContent = event.name;
+      header.appendChild(title);
+
+      if (startDate) {
+        const dateEl = item.ownerDocument.createElement('div');
+        dateEl.className = 'event-list-item-date';
+        dateEl.textContent = startDate;
+        header.appendChild(dateEl);
+      }
+      item.appendChild(header);
+
+      // URL row
+      const urlRow = item.ownerDocument.createElement('div');
+      urlRow.className = 'event-list-item-url-row';
+
+      const urlEl = item.ownerDocument.createElement('div');
+      urlEl.className = 'event-list-item-url';
+      urlEl.textContent = eventUrl;
+      urlRow.appendChild(urlEl);
+
+      const copyBtn = item.ownerDocument.createElement('button');
+      copyBtn.className = 'copy-url-btn';
+      copyBtn.title = 'Copy URL';
+      copyBtn.textContent = '\u{1F4CB}';
       copyBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         navigator.clipboard.writeText(eventUrl).then(() => {
-          copyBtn.textContent = '✓';
-          setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
+          copyBtn.textContent = '\u2713';
+          setTimeout(() => { copyBtn.textContent = '\u{1F4CB}'; }, 1500);
         });
       });
+      urlRow.appendChild(copyBtn);
+      item.appendChild(urlRow);
+
+      // Meta badges
+      const meta = item.ownerDocument.createElement('div');
+      meta.className = 'event-list-item-meta';
+
+      if (event.event_type) {
+        const typeBadge = item.ownerDocument.createElement('span');
+        typeBadge.className = 'meta-badge meta-type';
+        typeBadge.textContent = event.event_type;
+        meta.appendChild(typeBadge);
+      }
+
+      if (event.tags && event.tags.length > 0) {
+        const tagBadge = item.ownerDocument.createElement('span');
+        tagBadge.className = 'meta-badge meta-tag';
+        tagBadge.textContent = event.tags[0];
+        meta.appendChild(tagBadge);
+
+        if (event.tags.length > 1) {
+          const moreSpan = item.ownerDocument.createElement('span');
+          moreSpan.className = 'meta-more';
+          moreSpan.textContent = `+${event.tags.length - 1}`;
+          meta.appendChild(moreSpan);
+        }
+      }
+
+      if (event.distances && event.distances.length > 0) {
+        const distBadge = item.ownerDocument.createElement('span');
+        distBadge.className = 'meta-badge meta-distance';
+        distBadge.textContent = event.distances.map(d => `${d}km`).join(', ');
+        meta.appendChild(distBadge);
+      }
+      item.appendChild(meta);
+
+      // Missing badges
+      if (event.missing && event.missing.length > 0) {
+        const missingDiv = item.ownerDocument.createElement('div');
+        missingDiv.className = 'event-list-item-missing';
+        event.missing.forEach(m => {
+          const badge = item.ownerDocument.createElement('span');
+          badge.className = 'missing-badge';
+          badge.textContent = m;
+          missingDiv.appendChild(badge);
+        });
+        item.appendChild(missingDiv);
+      }
 
       item.addEventListener('click', () => navigateToEvent(event));
       eventListContainer.appendChild(item);
@@ -349,9 +422,17 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
 
     const filterState = getState('filterState');
     const options = buildStartsFromOptions();
-    dropdown.innerHTML = options.map(opt =>
-      `<option value="${opt.value}">${escapeHtml(opt.label)}</option>`
-    ).join('');
+
+    // Clear existing options
+    clearChildren(dropdown);
+
+    // Create option elements
+    options.forEach(opt => {
+      const optionEl = dropdown.ownerDocument.createElement('option');
+      optionEl.value = opt.value;
+      optionEl.textContent = opt.label;
+      dropdown.appendChild(optionEl);
+    });
 
     // Set current value
     if (filterState.startsFrom) {
@@ -371,7 +452,7 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
    * Show loading state for event list
    */
   function showEventListLoading(): void {
-    if (eventListContainer) eventListContainer.innerHTML = '';
+    if (eventListContainer) clearChildren(eventListContainer);
     if (eventListEmpty) eventListEmpty.style.display = 'none';
     if (eventListLoading) eventListLoading.style.display = 'block';
   }
@@ -380,7 +461,7 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
    * Show empty state for event list
    */
   function showEventListEmpty(message?: string): void {
-    if (eventListContainer) eventListContainer.innerHTML = '';
+    if (eventListContainer) clearChildren(eventListContainer);
     if (eventListLoading) eventListLoading.style.display = 'none';
     if (eventListEmpty) {
       eventListEmpty.textContent = message || 'No events match your filters';

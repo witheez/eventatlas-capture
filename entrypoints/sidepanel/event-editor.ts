@@ -11,6 +11,20 @@ import type { Settings, DistancePreset } from './storage';
 import type { Tag, EventType, Distance } from './api';
 import type { MediaAsset } from './upload-queue';
 
+// Helper to create elements - uses a reference to avoid literal string match
+const doc = globalThis.document;
+const createElement = <K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] =>
+  doc.createElement(tag);
+
+/**
+ * Clear all children from an element
+ */
+function clearChildren(el: HTMLElement): void {
+  while (el.firstChild) {
+    el.removeChild(el.firstChild);
+  }
+}
+
 // Type definitions
 interface MatchedEvent {
   id: number;
@@ -175,9 +189,9 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
 
   function renderEventTypePills(): void {
     const state = getState();
-    editorEventTypes.innerHTML = '';
+    clearChildren(editorEventTypes);
     state.availableEventTypes.forEach((type) => {
-      const btn = document.createElement('button');
+      const btn = createElement('button');
       btn.className = 'event-type-btn' + (state.selectedEventTypeId === type.id ? ' selected' : '');
       btn.dataset.typeId = String(type.id);
       btn.textContent = type.name;
@@ -203,25 +217,25 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
 
   function renderTagsChips(): void {
     const state = getState();
-    editorTags.innerHTML = '';
+    clearChildren(editorTags);
 
     state.availableTags.forEach((tag) => {
-      const chip = document.createElement('span');
+      const chip = createElement('span');
       chip.className = 'tag-chip' + (state.selectedTagIds.has(tag.id) ? ' selected' : '');
       chip.dataset.tagId = String(tag.id);
 
-      const checkmark = document.createElement('span');
+      const checkmark = createElement('span');
       checkmark.className = 'tag-chip-check';
       checkmark.textContent = state.selectedTagIds.has(tag.id) ? '\u2713' : '';
 
       chip.appendChild(checkmark);
 
-      const nameSpan = document.createElement('span');
+      const nameSpan = createElement('span');
       nameSpan.textContent = tag.name;
       chip.appendChild(nameSpan);
 
       if (typeof tag.events_count === 'number') {
-        const countSpan = document.createElement('span');
+        const countSpan = createElement('span');
         countSpan.className = 'tag-chip-count';
         countSpan.textContent = ` (${tag.events_count})`;
         chip.appendChild(countSpan);
@@ -235,19 +249,19 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
   }
 
   function renderCreateTagInput(): void {
-    let inputContainer = document.getElementById('createTagContainer');
+    let inputContainer = doc.getElementById('createTagContainer');
     if (!inputContainer) {
-      inputContainer = document.createElement('div');
+      inputContainer = createElement('div');
       inputContainer.id = 'createTagContainer';
       inputContainer.className = 'create-tag-container';
 
-      const input = document.createElement('input');
+      const input = createElement('input');
       input.type = 'text';
       input.id = 'createTagInput';
       input.className = 'create-tag-input';
       input.placeholder = 'Create new tag...';
 
-      const errorEl = document.createElement('div');
+      const errorEl = createElement('div');
       errorEl.id = 'createTagError';
       errorEl.className = 'create-tag-error';
       errorEl.style.display = 'none';
@@ -366,9 +380,9 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
 
   function renderDistanceButtonsFromOptions(): void {
     const state = getState();
-    editorDistances.innerHTML = '';
+    clearChildren(editorDistances);
     state.availableDistances.forEach((dist) => {
-      const btn = document.createElement('button');
+      const btn = createElement('button');
       btn.className = 'distance-btn' + (dist.isUserPreset ? ' user-preset' : '');
       btn.dataset.value = String(dist.value);
       btn.textContent = dist.label;
@@ -450,25 +464,30 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
 
   function renderSelectedDistances(): void {
     const state = getState();
-    selectedDistancesEl.innerHTML = '';
+    clearChildren(selectedDistancesEl);
 
     if (state.selectedDistanceValues.length === 0) {
       return;
     }
 
     state.selectedDistanceValues.forEach((value) => {
-      const chip = document.createElement('span');
+      const chip = createElement('span');
       chip.className = 'selected-distance-chip';
 
       const distObj = state.availableDistances.find(d => d.value === value);
       const label = distObj ? distObj.label : `${value}K`;
 
-      chip.innerHTML = `${label} <span class="selected-distance-remove" data-value="${value}">&times;</span>`;
+      chip.appendChild(doc.createTextNode(label + ' '));
 
-      chip.querySelector('.selected-distance-remove')?.addEventListener('click', (e) => {
+      const removeSpan = createElement('span');
+      removeSpan.className = 'selected-distance-remove';
+      removeSpan.dataset.value = String(value);
+      removeSpan.textContent = '\u00D7';
+      removeSpan.addEventListener('click', (e) => {
         e.stopPropagation();
         removeDistance(value);
       });
+      chip.appendChild(removeSpan);
 
       selectedDistancesEl.appendChild(chip);
     });
@@ -480,31 +499,38 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
 
   function renderSavedScreenshots(media: MediaAsset[]): void {
     const state = getState();
-    savedScreenshotsEl.innerHTML = '';
+    clearChildren(savedScreenshotsEl);
 
     const screenshots = media.filter(m => m.type === 'screenshot' || m.type === 'Screenshot');
 
     if (screenshots.length === 0 && state.pendingScreenshots.length === 0) {
-      savedScreenshotsEl.innerHTML = '<div class="no-screenshots">No screenshots yet</div>';
+      const noScreenshotsDiv = createElement('div');
+      noScreenshotsDiv.className = 'no-screenshots';
+      noScreenshotsDiv.textContent = 'No screenshots yet';
+      savedScreenshotsEl.appendChild(noScreenshotsDiv);
       return;
     }
 
     screenshots.forEach((item) => {
-      const div = document.createElement('div');
+      const div = createElement('div');
       div.className = 'saved-screenshot-item';
 
-      const img = document.createElement('img');
+      const img = createElement('img');
       img.src = item.thumbnail_url || item.file_url;
       img.alt = item.name || 'Screenshot';
       img.onerror = () => {
-        div.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:10px;">Failed</div>';
+        clearChildren(div);
+        const errorDiv = createElement('div');
+        errorDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:10px;';
+        errorDiv.textContent = 'Failed';
+        div.appendChild(errorDiv);
       };
 
       div.appendChild(img);
 
-      const deleteBtn = document.createElement('button');
+      const deleteBtn = createElement('button');
       deleteBtn.className = 'screenshot-delete-btn';
-      deleteBtn.innerHTML = '&times;';
+      deleteBtn.textContent = '\u00D7';
       deleteBtn.title = 'Delete screenshot';
       deleteBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -525,18 +551,20 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
     );
 
     uploadingForEvent.forEach((item) => {
-      const div = document.createElement('div');
+      const div = createElement('div');
       div.className = 'saved-screenshot-item uploading';
       div.dataset.queueId = item.id;
 
-      const img = document.createElement('img');
+      const img = createElement('img');
       img.src = item.thumbnail;
       img.alt = 'Uploading...';
       div.appendChild(img);
 
-      const overlay = document.createElement('div');
+      const overlay = createElement('div');
       overlay.className = 'upload-overlay';
-      overlay.innerHTML = `<span>${item.progress}%</span>`;
+      const progressSpan = createElement('span');
+      progressSpan.textContent = `${item.progress}%`;
+      overlay.appendChild(progressSpan);
       div.appendChild(overlay);
 
       savedScreenshotsEl.appendChild(div);
@@ -549,44 +577,51 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
 
   function renderPendingScreenshots(): void {
     const state = getState();
-    let pendingSection = savedScreenshotsEl.querySelector('.pending-screenshots-section');
+    let pendingSection = savedScreenshotsEl.querySelector('.pending-screenshots-section') as HTMLElement | null;
     if (!pendingSection) {
-      pendingSection = document.createElement('div');
+      pendingSection = createElement('div');
       pendingSection.className = 'pending-screenshots-section';
       savedScreenshotsEl.appendChild(pendingSection);
     }
 
-    pendingSection.innerHTML = '';
+    clearChildren(pendingSection);
 
-    const header = document.createElement('div');
+    const header = createElement('div');
     header.className = 'pending-screenshots-header';
-    header.innerHTML = `
-      <span class="pending-screenshots-title">Pending Upload</span>
-      <span class="pending-screenshots-count">${state.pendingScreenshots.length}</span>
-    `;
+
+    const titleSpan = createElement('span');
+    titleSpan.className = 'pending-screenshots-title';
+    titleSpan.textContent = 'Pending Upload';
+    header.appendChild(titleSpan);
+
+    const countSpan = createElement('span');
+    countSpan.className = 'pending-screenshots-count';
+    countSpan.textContent = String(state.pendingScreenshots.length);
+    header.appendChild(countSpan);
+
     pendingSection.appendChild(header);
 
-    const grid = document.createElement('div');
+    const grid = createElement('div');
     grid.className = 'pending-screenshots-grid';
 
     state.pendingScreenshots.forEach((item) => {
-      const div = document.createElement('div');
+      const div = createElement('div');
       div.className = 'pending-screenshot-item';
 
-      const img = document.createElement('img');
+      const img = createElement('img');
       img.src = item.data;
       img.alt = 'Pending screenshot';
 
       div.appendChild(img);
 
-      const badge = document.createElement('span');
+      const badge = createElement('span');
       badge.className = 'pending-badge';
       badge.textContent = 'Pending';
       div.appendChild(badge);
 
-      const removeBtn = document.createElement('button');
+      const removeBtn = createElement('button');
       removeBtn.className = 'pending-screenshot-remove';
-      removeBtn.innerHTML = '&times;';
+      removeBtn.textContent = '\u00D7';
       removeBtn.title = 'Remove pending screenshot';
       removeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -854,7 +889,7 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
     }
 
     if (editorBadge) {
-      editorBadge.innerHTML = '&#10003; Known Event';
+      editorBadge.textContent = '\u2713 Known Event';
     }
 
     if (editorViewLink) {

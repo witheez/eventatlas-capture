@@ -176,10 +176,17 @@ export function initCapture(deps: CaptureDependencies): CaptureAPI {
     captureNoScreenshotBtn.disabled = disabled;
     captureWithScreenshotBtn.disabled = disabled;
 
-    if (text !== 'Capture Page') {
-      captureNoScreenshotBtn.innerHTML = `<span class="capture-btn-icon">&#128196;</span> ${text}`;
+    // Update button text without innerHTML - find or create text node
+    const iconSpan = captureNoScreenshotBtn.querySelector('.capture-btn-icon');
+    if (iconSpan) {
+      iconSpan.textContent = '\u{1F4C4}';
+      // Update text after icon
+      const textNode = iconSpan.nextSibling;
+      if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+        textNode.textContent = ' ' + text;
+      }
     } else {
-      captureNoScreenshotBtn.innerHTML = '<span class="capture-btn-icon">&#128196;</span> Capture Page';
+      captureNoScreenshotBtn.textContent = text;
     }
   }
 
@@ -321,7 +328,17 @@ export function initCapture(deps: CaptureDependencies): CaptureAPI {
     }
 
     addScreenshotBtn.disabled = true;
-    addScreenshotBtn.innerHTML = '<span class="capture-btn-icon">&#128248;</span> Capturing...';
+    // Update button text without innerHTML
+    const iconSpan = addScreenshotBtn.querySelector('.capture-btn-icon');
+    if (iconSpan) {
+      iconSpan.textContent = '\u{1F4F8}';
+      const textNode = iconSpan.nextSibling;
+      if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+        textNode.textContent = ' Capturing...';
+      }
+    } else {
+      addScreenshotBtn.textContent = 'Capturing...';
+    }
 
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -347,7 +364,17 @@ export function initCapture(deps: CaptureDependencies): CaptureAPI {
       showToast((err instanceof Error ? err.message : null) || 'Failed to add screenshot', 'error');
     } finally {
       addScreenshotBtn.disabled = false;
-      addScreenshotBtn.innerHTML = '<span class="capture-btn-icon">&#128248;</span> Add Screenshot';
+      // Update button text without innerHTML
+      const iconSpan = addScreenshotBtn.querySelector('.capture-btn-icon');
+      if (iconSpan) {
+        iconSpan.textContent = '\u{1F4F8}';
+        const textNode = iconSpan.nextSibling;
+        if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+          textNode.textContent = ' Add Screenshot';
+        }
+      } else {
+        addScreenshotBtn.textContent = 'Add Screenshot';
+      }
     }
   }
 

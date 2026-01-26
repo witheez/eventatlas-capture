@@ -11,6 +11,10 @@ export default defineConfig({
       default_title: 'Open EventAtlas Capture',
     },
   },
-  // Keep JavaScript for now (Phase 1 - no TypeScript conversion yet)
   srcDir: '.',
+  // Preact configuration
+  alias: {
+    'react': 'preact/compat',
+    'react-dom': 'preact/compat',
+  },
 });

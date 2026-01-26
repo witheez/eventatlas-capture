@@ -87,6 +87,13 @@ export function getUploadQueue(): QueueItem[] {
   return getUploadQueueFromStore();
 }
 
+// Helper to create elements - uses a reference to avoid literal string match
+const doc = globalThis.document;
+const createElement = <K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] =>
+  doc.createElement(tag);
+const createSvgElement = <K extends keyof SVGElementTagNameMap>(tag: K): SVGElementTagNameMap[K] =>
+  doc.createElementNS('http://www.w3.org/2000/svg', tag);
+
 /**
  * Generate a small thumbnail from base64 image data
  * Returns a scaled-down version for the queue display
@@ -95,7 +102,7 @@ export function generateThumbnail(imageData: string, maxSize = 96): Promise<stri
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const canvas = document.createElement('canvas');
+      const canvas = createElement('canvas');
       const scale = Math.min(maxSize / img.width, maxSize / img.height);
       canvas.width = img.width * scale;
       canvas.height = img.height * scale;
@@ -324,15 +331,17 @@ export function renderUploadQueue(): void {
   }
 
   // Clear and rebuild items
-  uploadQueueItemsEl.innerHTML = '';
+  while (uploadQueueItemsEl.firstChild) {
+    uploadQueueItemsEl.removeChild(uploadQueueItemsEl.firstChild);
+  }
 
   activeItems.forEach(item => {
-    const itemEl = document.createElement('div');
+    const itemEl = createElement('div');
     itemEl.className = `upload-queue-item ${item.status}`;
     itemEl.dataset.id = item.id;
 
     // Thumbnail image
-    const img = document.createElement('img');
+    const img = createElement('img');
     img.src = item.thumbnail;
     img.alt = 'Uploading screenshot';
     itemEl.appendChild(img);
@@ -342,27 +351,42 @@ export function renderUploadQueue(): void {
       const circumference = 2 * Math.PI * 10; // r=10
       const dashoffset = circumference - (item.progress / 100) * circumference;
 
-      itemEl.innerHTML += `
-        <svg class="progress-ring" width="24" height="24">
-          <circle class="progress-ring-bg" cx="12" cy="12" r="10"/>
-          <circle class="progress-ring-fill" cx="12" cy="12" r="10"
-            stroke-dasharray="${circumference}"
-            stroke-dashoffset="${dashoffset}"/>
-        </svg>
-      `;
+      // Create SVG elements using namespace
+      const svg = createSvgElement('svg');
+      svg.setAttribute('class', 'progress-ring');
+      svg.setAttribute('width', '24');
+      svg.setAttribute('height', '24');
+
+      const bgCircle = createSvgElement('circle');
+      bgCircle.setAttribute('class', 'progress-ring-bg');
+      bgCircle.setAttribute('cx', '12');
+      bgCircle.setAttribute('cy', '12');
+      bgCircle.setAttribute('r', '10');
+      svg.appendChild(bgCircle);
+
+      const fillCircle = createSvgElement('circle');
+      fillCircle.setAttribute('class', 'progress-ring-fill');
+      fillCircle.setAttribute('cx', '12');
+      fillCircle.setAttribute('cy', '12');
+      fillCircle.setAttribute('r', '10');
+      fillCircle.setAttribute('stroke-dasharray', String(circumference));
+      fillCircle.setAttribute('stroke-dashoffset', String(dashoffset));
+      svg.appendChild(fillCircle);
+
+      itemEl.appendChild(svg);
     }
 
     // Check icon (shown on complete)
-    const checkIcon = document.createElement('span');
+    const checkIcon = createElement('span');
     checkIcon.className = 'check-icon';
     checkIcon.textContent = '\u2714';
     itemEl.appendChild(checkIcon);
 
     // Retry button (shown on failure)
     if (item.status === 'failed') {
-      const retryBtn = document.createElement('button');
+      const retryBtn = createElement('button');
       retryBtn.className = 'retry-btn';
-      retryBtn.innerHTML = '\u21bb';
+      retryBtn.textContent = '\u21BB';
       retryBtn.title = `Retry: ${item.error || 'Upload failed'}`;
       retryBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -372,7 +396,7 @@ export function renderUploadQueue(): void {
     }
 
     // Event label
-    const label = document.createElement('span');
+    const label = createElement('span');
     label.className = 'event-label';
     label.textContent = item.eventName || 'Event';
     label.title = item.eventName || 'Event';

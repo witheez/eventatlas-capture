@@ -106,7 +106,7 @@ describe('escapeHtml', () => {
   });
 
   it('should escape quotes', () => {
-    expect(escapeHtml('"test"')).toBe('"test"'); // textContent doesn't escape quotes in innerHTML
+    expect(escapeHtml('"test"')).toBe('&quot;test&quot;'); // quotes escaped for HTML safety
   });
 
   it('should handle plain text', () => {
@@ -114,7 +114,7 @@ describe('escapeHtml', () => {
   });
 
   it('should handle script tags', () => {
-    expect(escapeHtml('<script>alert("xss")</script>')).toBe('&lt;script&gt;alert("xss")&lt;/script&gt;');
+    expect(escapeHtml('<script>alert("xss")</script>')).toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
   });
 });
 
