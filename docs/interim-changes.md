@@ -32,7 +32,27 @@ Multiple files used `settings.apiUrl` directly in fetch/XHR calls without normal
 
 ---
 
-## Change 2: (Template for next change)
+## Change 2: Call Event Editor Functions Through Module Reference
+
+**Commit:** `2d90fc4`
+**Date:** 2026-01-25
+**Issue:** Refresh button showed "ReferenceError: loadEditorOptions is not defined"
+
+**Root Cause:**
+The `refreshPageData` function in `main.js` was calling event editor functions directly (`loadEditorOptions()`, `renderTagsChips()`, etc.) instead of through the `eventEditorModule` object returned by the factory pattern.
+
+**Files Changed:**
+| File | Change |
+|------|--------|
+| `entrypoints/sidepanel/main.js` | Call functions through `eventEditorModule` object |
+
+**Verification After Merge:**
+1. Check that event editor functions are called through the module reference, not directly
+2. Test refresh button on Current tab when viewing a known event
+
+---
+
+## Change 3: (Template for next change)
 
 **Commit:** `xxx`
 **Date:** YYYY-MM-DD
