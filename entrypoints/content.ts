@@ -5,6 +5,21 @@
  * Responds to messages from the popup to capture page content.
  */
 
+interface PageMetadata {
+  [key: string]: string;
+}
+
+interface CapturedContent {
+  url: string;
+  title: string;
+  html: string;
+  text: string;
+  images: string[];
+  metadata: PageMetadata;
+  capturedAt: string;
+  error?: string;
+}
+
 export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_idle',
@@ -12,24 +27,23 @@ export default defineContentScript({
   main() {
     /**
      * Extract all image URLs from the page
-     * @returns {string[]} Array of absolute image URLs
      */
-    function extractImageUrls() {
-      const images = new Set();
+    function extractImageUrls(): string[] {
+      const images = new Set<string>();
 
       // Get all <img> elements
-      document.querySelectorAll('img').forEach(img => {
+      document.querySelectorAll('img').forEach((img) => {
         if (img.src && !img.src.startsWith('data:')) {
           images.add(img.src);
         }
         // Also check srcset
         if (img.srcset) {
-          img.srcset.split(',').forEach(src => {
+          img.srcset.split(',').forEach((src) => {
             const url = src.trim().split(' ')[0];
             if (url && !url.startsWith('data:')) {
               try {
                 images.add(new URL(url, window.location.href).href);
-              } catch (e) {
+              } catch {
                 // Invalid URL, skip
               }
             }
@@ -38,56 +52,60 @@ export default defineContentScript({
       });
 
       // Get background images from inline styles
-      document.querySelectorAll('[style*="background"]').forEach(el => {
+      document.querySelectorAll('[style*="background"]').forEach((el) => {
         const style = el.getAttribute('style');
         const match = style?.match(/url\(['"]?([^'")\s]+)['"]?\)/);
         if (match && match[1] && !match[1].startsWith('data:')) {
           try {
             images.add(new URL(match[1], window.location.href).href);
-          } catch (e) {
+          } catch {
             // Invalid URL, skip
           }
         }
       });
 
       // Get images from picture/source elements
-      document.querySelectorAll('source[srcset]').forEach(source => {
-        source.srcset.split(',').forEach(src => {
-          const url = src.trim().split(' ')[0];
-          if (url && !url.startsWith('data:')) {
+      document.querySelectorAll('source[srcset]').forEach((source) => {
+        const srcset = source.getAttribute('srcset');
+        if (srcset) {
+          srcset.split(',').forEach((src) => {
+            const url = src.trim().split(' ')[0];
+            if (url && !url.startsWith('data:')) {
+              try {
+                images.add(new URL(url, window.location.href).href);
+              } catch {
+                // Invalid URL, skip
+              }
+            }
+          });
+        }
+      });
+
+      // Get Open Graph and Twitter card images
+      document
+        .querySelectorAll('meta[property="og:image"], meta[name="twitter:image"]')
+        .forEach((meta) => {
+          const content = meta.getAttribute('content');
+          if (content) {
             try {
-              images.add(new URL(url, window.location.href).href);
-            } catch (e) {
+              images.add(new URL(content, window.location.href).href);
+            } catch {
               // Invalid URL, skip
             }
           }
         });
-      });
-
-      // Get Open Graph and Twitter card images
-      document.querySelectorAll('meta[property="og:image"], meta[name="twitter:image"]').forEach(meta => {
-        const content = meta.getAttribute('content');
-        if (content) {
-          try {
-            images.add(new URL(content, window.location.href).href);
-          } catch (e) {
-            // Invalid URL, skip
-          }
-        }
-      });
 
       return Array.from(images);
     }
 
     /**
      * Extract structured metadata from the page
-     * @returns {object} Metadata object
      */
-    function extractMetadata() {
-      const meta = {};
+    function extractMetadata(): PageMetadata {
+      const meta: PageMetadata = {};
 
       // Open Graph
-      document.querySelectorAll('meta[property^="og:"]').forEach(el => {
+      document.querySelectorAll('meta[property^="og:"]').forEach((el) => {
         const property = el.getAttribute('property')?.replace('og:', '');
         const content = el.getAttribute('content');
         if (property && content) {
@@ -96,7 +114,7 @@ export default defineContentScript({
       });
 
       // Twitter Card
-      document.querySelectorAll('meta[name^="twitter:"]').forEach(el => {
+      document.querySelectorAll('meta[name^="twitter:"]').forEach((el) => {
         const name = el.getAttribute('name')?.replace('twitter:', '');
         const content = el.getAttribute('content');
         if (name && content) {
@@ -105,7 +123,7 @@ export default defineContentScript({
       });
 
       // Standard meta tags
-      document.querySelectorAll('meta[name="description"], meta[name="author"]').forEach(el => {
+      document.querySelectorAll('meta[name="description"], meta[name="author"]').forEach((el) => {
         const name = el.getAttribute('name');
         const content = el.getAttribute('content');
         if (name && content) {
@@ -118,9 +136,8 @@ export default defineContentScript({
 
     /**
      * Capture all page content
-     * @returns {object} Captured content data
      */
-    function capturePageContent() {
+    function capturePageContent(): CapturedContent {
       const capturedAt = new Date().toISOString();
 
       return {
@@ -141,7 +158,7 @@ export default defineContentScript({
           const data = capturePageContent();
           sendResponse(data);
         } catch (error) {
-          sendResponse({ error: error.message });
+          sendResponse({ error: error instanceof Error ? error.message : 'Unknown error' });
         }
       }
       return true; // Keep channel open for async response

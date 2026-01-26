@@ -9,9 +9,41 @@
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
-    "zip:firefox": "wxt zip -b firefox"
+    "zip:firefox": "wxt zip -b firefox",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint entrypoints utils",
+    "lint:fix": "eslint entrypoints utils --fix",
+    "format": "prettier --write \"entrypoints/**/*.{ts,tsx}\" \"utils/**/*.ts\"",
+    "format:check": "prettier --check \"entrypoints/**/*.{ts,tsx}\" \"utils/**/*.ts\"",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ]
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@vitest/coverage-v8": "^4.0.18",
+    "chrome-types": "^0.1.414",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "husky": "^9.1.7",
+    "jsdom": "^27.4.0",
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.53.1",
+    "vitest": "^4.0.18",
     "wxt": "^0.20.0"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.6.1",
+    "preact": "^10.28.2"
   }
 }

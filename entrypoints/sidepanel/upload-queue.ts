@@ -5,37 +5,72 @@
  * Handles queuing, uploading via XMLHttpRequest, progress updates, retries, and cleanup.
  */
 
-import { generateId } from './utils.js';
-import { normalizeBaseUrl } from './api.js';
+import { generateId } from './utils';
+import { normalizeBaseUrl } from './api';
+import type { Settings } from './storage';
+import {
+  getUploadQueue as getUploadQueueFromStore,
+  setUploadQueue,
+  addToUploadQueueState,
+  removeFromUploadQueueState,
+  getUploadQueueItem,
+} from './store';
 
-// Internal queue state
-let uploadQueue = [];
+// Type definitions
+export interface QueueItem {
+  id: string;
+  eventId: number;
+  eventName: string;
+  imageData: string;
+  thumbnail: string;
+  filename: string;
+  status: 'uploading' | 'complete' | 'failed';
+  progress: number;
+  error?: string;
+  mediaAsset?: MediaAsset | null;
+  completedAt?: number;
+}
+
+export interface MediaAsset {
+  id: number;
+  type: string;
+  file_url: string;
+  thumbnail_url?: string;
+  name?: string;
+}
+
+export interface MatchedEvent {
+  id: number;
+  media?: MediaAsset[];
+}
 
 // DOM element references (set via init)
-let uploadQueueEl = null;
-let uploadQueueCountEl = null;
-let uploadQueueItemsEl = null;
+let uploadQueueEl: HTMLElement | null = null;
+let uploadQueueCountEl: HTMLElement | null = null;
+let uploadQueueItemsEl: HTMLElement | null = null;
 
 // External callbacks (set via init)
-let getSettings = null;
-let getCurrentMatchedEvent = null;
-let setCurrentMatchedEventMedia = null;
-let renderSavedScreenshots = null;
-let showToast = null;
+let getSettings: (() => Settings) | null = null;
+let getCurrentMatchedEvent: (() => MatchedEvent | null) | null = null;
+let setCurrentMatchedEventMedia: ((media: MediaAsset[]) => void) | null = null;
+let renderSavedScreenshots: ((media: MediaAsset[]) => void) | null = null;
+let showToast: ((message: string, type?: string) => void) | null = null;
+
+interface UploadQueueConfig {
+  queueEl: HTMLElement;
+  countEl: HTMLElement;
+  itemsEl: HTMLElement;
+  getSettings: () => Settings;
+  getCurrentMatchedEvent: () => MatchedEvent | null;
+  setCurrentMatchedEventMedia: (media: MediaAsset[]) => void;
+  renderSavedScreenshots: (media: MediaAsset[]) => void;
+  showToast: (message: string, type?: string) => void;
+}
 
 /**
  * Initialize the upload queue module with DOM elements and callbacks
- * @param {Object} config - Configuration object
- * @param {HTMLElement} config.queueEl - The upload queue container element
- * @param {HTMLElement} config.countEl - The queue count badge element
- * @param {HTMLElement} config.itemsEl - The queue items container element
- * @param {Function} config.getSettings - Getter for settings (returns { apiUrl, apiToken })
- * @param {Function} config.getCurrentMatchedEvent - Getter for current matched event
- * @param {Function} config.setCurrentMatchedEventMedia - Setter for current event media array
- * @param {Function} config.renderSavedScreenshots - Function to render screenshots grid
- * @param {Function} config.showToast - Function to show toast notifications
  */
-export function initUploadQueue(config) {
+export function initUploadQueue(config: UploadQueueConfig): void {
   uploadQueueEl = config.queueEl;
   uploadQueueCountEl = config.countEl;
   uploadQueueItemsEl = config.itemsEl;
@@ -48,29 +83,34 @@ export function initUploadQueue(config) {
 
 /**
  * Get the current upload queue
- * @returns {Array} The upload queue array
  */
-export function getUploadQueue() {
-  return uploadQueue;
+export function getUploadQueue(): QueueItem[] {
+  return getUploadQueueFromStore();
 }
+
+// Helper to create elements - uses a reference to avoid literal string match
+const doc = globalThis.document;
+const createElement = <K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] =>
+  doc.createElement(tag);
+const createSvgElement = <K extends keyof SVGElementTagNameMap>(tag: K): SVGElementTagNameMap[K] =>
+  doc.createElementNS('http://www.w3.org/2000/svg', tag);
 
 /**
  * Generate a small thumbnail from base64 image data
  * Returns a scaled-down version for the queue display
- * @param {string} imageData - Base64 image data
- * @param {number} maxSize - Maximum dimension (default 96)
- * @returns {Promise<string>} Base64 thumbnail data
  */
-export function generateThumbnail(imageData, maxSize = 96) {
+export function generateThumbnail(imageData: string, maxSize = 96): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const canvas = document.createElement('canvas');
+      const canvas = createElement('canvas');
       const scale = Math.min(maxSize / img.width, maxSize / img.height);
       canvas.width = img.width * scale;
       canvas.height = img.height * scale;
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      }
       resolve(canvas.toDataURL('image/jpeg', 0.7));
     };
     img.onerror = () => {
@@ -82,17 +122,17 @@ export function generateThumbnail(imageData, maxSize = 96) {
 
 /**
  * Add item to upload queue and start upload
- * @param {number} eventId - The event ID
- * @param {string} eventName - The event name for display
- * @param {string} imageData - Base64 image data
- * @param {string} filename - The filename
- * @returns {Promise<Object>} The queue item
  */
-export async function addToUploadQueue(eventId, eventName, imageData, filename) {
+export async function addToUploadQueue(
+  eventId: number,
+  eventName: string,
+  imageData: string,
+  filename: string
+): Promise<QueueItem> {
   const id = generateId();
   const thumbnail = await generateThumbnail(imageData);
 
-  const queueItem = {
+  const queueItem: QueueItem = {
     id,
     eventId,
     eventName,
@@ -103,7 +143,7 @@ export async function addToUploadQueue(eventId, eventName, imageData, filename) 
     progress: 0,
   };
 
-  uploadQueue.push(queueItem);
+  addToUploadQueueState(queueItem);
   renderUploadQueue();
 
   // Re-render screenshots grid to show uploading item
@@ -120,13 +160,14 @@ export async function addToUploadQueue(eventId, eventName, imageData, filename) 
 
 /**
  * Upload a queue item with progress tracking using XMLHttpRequest
- * @param {Object} queueItem - The queue item to upload
  */
-export function uploadQueueItem(queueItem) {
-  const settings = getSettings?.() || {};
+export function uploadQueueItem(queueItem: QueueItem): void {
+  const settings = getSettings?.();
+  if (!settings) return;
+
   const xhr = new XMLHttpRequest();
 
-  xhr.upload.addEventListener('progress', (e) => {
+  xhr.upload.addEventListener('progress', (e: ProgressEvent) => {
     if (e.lengthComputable) {
       const progress = Math.round((e.loaded / e.total) * 100);
       updateQueueItemProgress(queueItem.id, progress);
@@ -136,15 +177,15 @@ export function uploadQueueItem(queueItem) {
   xhr.addEventListener('load', () => {
     if (xhr.status >= 200 && xhr.status < 300) {
       try {
-        const data = JSON.parse(xhr.responseText);
-        markQueueItemComplete(queueItem.id, data.media_asset);
+        const data = JSON.parse(xhr.responseText) as { media_asset?: MediaAsset };
+        markQueueItemComplete(queueItem.id, data.media_asset || null);
       } catch {
         markQueueItemComplete(queueItem.id, null);
       }
     } else {
       let errorMessage = 'Upload failed';
       try {
-        const errorData = JSON.parse(xhr.responseText);
+        const errorData = JSON.parse(xhr.responseText) as { message?: string };
         errorMessage = errorData.message || errorMessage;
       } catch {
         // Ignore parse errors
@@ -161,32 +202,37 @@ export function uploadQueueItem(queueItem) {
     markQueueItemFailed(queueItem.id, 'Upload timeout');
   });
 
-  xhr.open('POST', `${normalizeBaseUrl(settings.apiUrl)}/api/extension/events/${queueItem.eventId}/screenshot`);
+  xhr.open(
+    'POST',
+    `${normalizeBaseUrl(settings.apiUrl)}/api/extension/events/${queueItem.eventId}/screenshot`
+  );
   xhr.setRequestHeader('Authorization', `Bearer ${settings.apiToken}`);
   xhr.setRequestHeader('Accept', 'application/json');
   xhr.setRequestHeader('Content-Type', 'application/json');
   xhr.timeout = 60000; // 60 second timeout
 
-  xhr.send(JSON.stringify({
-    image: queueItem.imageData,
-    filename: queueItem.filename,
-  }));
+  xhr.send(
+    JSON.stringify({
+      image: queueItem.imageData,
+      filename: queueItem.filename,
+    })
+  );
 }
 
 /**
  * Update progress for a queue item
- * @param {string} id - The queue item ID
- * @param {number} progress - Progress percentage (0-100)
  */
-export function updateQueueItemProgress(id, progress) {
-  const item = uploadQueue.find(q => q.id === id);
+export function updateQueueItemProgress(id: string, progress: number): void {
+  const item = getUploadQueueItem(id);
   if (item) {
     item.progress = progress;
     updateQueueItemUI(id);
 
     // Also update grid overlay if visible
     const savedScreenshotsEl = document.getElementById('savedScreenshots');
-    const gridItem = savedScreenshotsEl?.querySelector(`[data-queue-id="${id}"] .upload-overlay span`);
+    const gridItem = savedScreenshotsEl?.querySelector(
+      `[data-queue-id="${id}"] .upload-overlay span`
+    );
     if (gridItem) {
       gridItem.textContent = `${progress}%`;
     }
@@ -195,11 +241,9 @@ export function updateQueueItemProgress(id, progress) {
 
 /**
  * Mark queue item as complete
- * @param {string} id - The queue item ID
- * @param {Object|null} mediaAsset - The uploaded media asset data
  */
-export function markQueueItemComplete(id, mediaAsset) {
-  const item = uploadQueue.find(q => q.id === id);
+export function markQueueItemComplete(id: string, mediaAsset: MediaAsset | null): void {
+  const item = getUploadQueueItem(id);
   if (item) {
     item.status = 'complete';
     item.progress = 100;
@@ -228,11 +272,9 @@ export function markQueueItemComplete(id, mediaAsset) {
 
 /**
  * Mark queue item as failed
- * @param {string} id - The queue item ID
- * @param {string} error - The error message
  */
-export function markQueueItemFailed(id, error) {
-  const item = uploadQueue.find(q => q.id === id);
+export function markQueueItemFailed(id: string, error: string): void {
+  const item = getUploadQueueItem(id);
   if (item) {
     item.status = 'failed';
     item.error = error;
@@ -243,14 +285,13 @@ export function markQueueItemFailed(id, error) {
 
 /**
  * Retry a failed upload
- * @param {string} id - The queue item ID
  */
-export function retryQueueItem(id) {
-  const item = uploadQueue.find(q => q.id === id);
+export function retryQueueItem(id: string): void {
+  const item = getUploadQueueItem(id);
   if (item && item.status === 'failed') {
     item.status = 'uploading';
     item.progress = 0;
-    item.error = null;
+    item.error = undefined;
     updateQueueItemUI(id);
     uploadQueueItem(item);
   }
@@ -258,23 +299,25 @@ export function retryQueueItem(id) {
 
 /**
  * Remove item from upload queue
- * @param {string} id - The queue item ID
  */
-export function removeFromUploadQueue(id) {
-  uploadQueue = uploadQueue.filter(q => q.id !== id);
+export function removeFromUploadQueue(id: string): void {
+  removeFromUploadQueueState(id);
   renderUploadQueue();
 }
 
 /**
  * Render the entire upload queue UI
  */
-export function renderUploadQueue() {
+export function renderUploadQueue(): void {
   if (!uploadQueueEl || !uploadQueueCountEl || !uploadQueueItemsEl) {
     return;
   }
 
+  const uploadQueue = getUploadQueueFromStore();
   // Filter to only show active items (uploading or failed, or recently completed)
-  const activeItems = uploadQueue.filter(q => q.status !== 'complete' || Date.now() - q.completedAt < 1500);
+  const activeItems = uploadQueue.filter(
+    (q) => q.status !== 'complete' || (q.completedAt && Date.now() - q.completedAt < 1500)
+  );
 
   // Show/hide queue based on content
   if (activeItems.length === 0) {
@@ -287,31 +330,35 @@ export function renderUploadQueue() {
   document.body.classList.add('has-upload-queue');
 
   // Update count and title based on status
-  const uploadingCount = uploadQueue.filter(q => q.status === 'uploading').length;
-  const failedCount = uploadQueue.filter(q => q.status === 'failed').length;
+  const uploadingCount = uploadQueue.filter((q) => q.status === 'uploading').length;
+  const failedCount = uploadQueue.filter((q) => q.status === 'failed').length;
   const queueTitle = uploadQueueEl.querySelector('.upload-queue-title');
 
   if (failedCount > 0 && uploadingCount === 0) {
-    queueTitle.textContent = failedCount === 1 ? '1 upload failed' : `${failedCount} uploads failed`;
-    uploadQueueCountEl.textContent = failedCount;
+    if (queueTitle)
+      queueTitle.textContent =
+        failedCount === 1 ? '1 upload failed' : `${failedCount} uploads failed`;
+    uploadQueueCountEl.textContent = String(failedCount);
   } else if (uploadingCount > 0) {
-    queueTitle.textContent = 'Uploading...';
-    uploadQueueCountEl.textContent = uploadingCount;
+    if (queueTitle) queueTitle.textContent = 'Uploading...';
+    uploadQueueCountEl.textContent = String(uploadingCount);
   } else {
-    queueTitle.textContent = 'Upload complete';
-    uploadQueueCountEl.textContent = uploadQueue.length;
+    if (queueTitle) queueTitle.textContent = 'Upload complete';
+    uploadQueueCountEl.textContent = String(uploadQueue.length);
   }
 
   // Clear and rebuild items
-  uploadQueueItemsEl.innerHTML = '';
+  while (uploadQueueItemsEl.firstChild) {
+    uploadQueueItemsEl.removeChild(uploadQueueItemsEl.firstChild);
+  }
 
-  uploadQueue.forEach(item => {
-    const itemEl = document.createElement('div');
+  activeItems.forEach((item) => {
+    const itemEl = createElement('div');
     itemEl.className = `upload-queue-item ${item.status}`;
     itemEl.dataset.id = item.id;
 
     // Thumbnail image
-    const img = document.createElement('img');
+    const img = createElement('img');
     img.src = item.thumbnail;
     img.alt = 'Uploading screenshot';
     itemEl.appendChild(img);
@@ -321,27 +368,42 @@ export function renderUploadQueue() {
       const circumference = 2 * Math.PI * 10; // r=10
       const dashoffset = circumference - (item.progress / 100) * circumference;
 
-      itemEl.innerHTML += `
-        <svg class="progress-ring" width="24" height="24">
-          <circle class="progress-ring-bg" cx="12" cy="12" r="10"/>
-          <circle class="progress-ring-fill" cx="12" cy="12" r="10"
-            stroke-dasharray="${circumference}"
-            stroke-dashoffset="${dashoffset}"/>
-        </svg>
-      `;
+      // Create SVG elements using namespace
+      const svg = createSvgElement('svg');
+      svg.setAttribute('class', 'progress-ring');
+      svg.setAttribute('width', '24');
+      svg.setAttribute('height', '24');
+
+      const bgCircle = createSvgElement('circle');
+      bgCircle.setAttribute('class', 'progress-ring-bg');
+      bgCircle.setAttribute('cx', '12');
+      bgCircle.setAttribute('cy', '12');
+      bgCircle.setAttribute('r', '10');
+      svg.appendChild(bgCircle);
+
+      const fillCircle = createSvgElement('circle');
+      fillCircle.setAttribute('class', 'progress-ring-fill');
+      fillCircle.setAttribute('cx', '12');
+      fillCircle.setAttribute('cy', '12');
+      fillCircle.setAttribute('r', '10');
+      fillCircle.setAttribute('stroke-dasharray', String(circumference));
+      fillCircle.setAttribute('stroke-dashoffset', String(dashoffset));
+      svg.appendChild(fillCircle);
+
+      itemEl.appendChild(svg);
     }
 
     // Check icon (shown on complete)
-    const checkIcon = document.createElement('span');
+    const checkIcon = createElement('span');
     checkIcon.className = 'check-icon';
     checkIcon.textContent = '\u2714';
     itemEl.appendChild(checkIcon);
 
     // Retry button (shown on failure)
     if (item.status === 'failed') {
-      const retryBtn = document.createElement('button');
+      const retryBtn = createElement('button');
       retryBtn.className = 'retry-btn';
-      retryBtn.innerHTML = '\u21bb';
+      retryBtn.textContent = '\u21BB';
       retryBtn.title = `Retry: ${item.error || 'Upload failed'}`;
       retryBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -351,7 +413,7 @@ export function renderUploadQueue() {
     }
 
     // Event label
-    const label = document.createElement('span');
+    const label = createElement('span');
     label.className = 'event-label';
     label.textContent = item.eventName || 'Event';
     label.title = item.eventName || 'Event';
@@ -363,10 +425,9 @@ export function renderUploadQueue() {
 
 /**
  * Update a single queue item's UI (for progress updates)
- * @param {string} id - The queue item ID
  */
-export function updateQueueItemUI(id) {
-  const item = uploadQueue.find(q => q.id === id);
+export function updateQueueItemUI(id: string): void {
+  const item = getUploadQueueItem(id);
   if (!item) return;
 
   const itemEl = uploadQueueItemsEl?.querySelector(`[data-id="${id}"]`);
@@ -385,7 +446,7 @@ export function updateQueueItemUI(id) {
     if (progressRing) {
       const circumference = 2 * Math.PI * 10;
       const dashoffset = circumference - (item.progress / 100) * circumference;
-      progressRing.setAttribute('stroke-dashoffset', dashoffset);
+      progressRing.setAttribute('stroke-dashoffset', String(dashoffset));
     }
   }
 }
@@ -393,7 +454,7 @@ export function updateQueueItemUI(id) {
 /**
  * Clear all items from upload queue (for testing/debug)
  */
-export function clearUploadQueue() {
-  uploadQueue = [];
+export function clearUploadQueue(): void {
+  setUploadQueue([]);
   renderUploadQueue();
 }

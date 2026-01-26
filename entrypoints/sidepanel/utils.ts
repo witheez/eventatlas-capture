@@ -5,12 +5,12 @@
  */
 
 // Re-export shared URL utilities
-export { normalizeUrl, getDomain, fixUrl } from '@/utils/url.js';
+export { normalizeUrl, getDomain, fixUrl } from '@/utils/url';
 
 /**
  * Format bytes to human-readable string
  */
-export function formatBytes(bytes) {
+export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB'];
@@ -21,23 +21,26 @@ export function formatBytes(bytes) {
 /**
  * Escape special regex characters in a string
  */
-export function escapeRegex(str) {
+export function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
  * Escape HTML special characters
  */
-export function escapeHtml(str) {
+export function escapeHtml(str: string): string {
   if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /**
  * Generate unique ID
  */
-export function generateId() {
+export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
 }

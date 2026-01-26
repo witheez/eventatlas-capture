@@ -5,32 +5,169 @@
  * Uses a factory pattern to receive dependencies from sidepanel.js.
  */
 
-import { generateId } from './utils.js';
-import { fetchTags, fetchEventTypes, fetchDistances, normalizeBaseUrl } from './api.js';
+import {
+  fetchTags,
+  fetchEventTypes,
+  fetchDistances,
+  createTag as apiCreateTag,
+  deleteScreenshot as apiDeleteScreenshot,
+  uploadScreenshot as apiUploadScreenshot,
+  updateEvent as apiUpdateEvent,
+} from './api';
+import type { Settings } from './storage';
+import type { Tag, EventType, Distance, MediaAsset } from './api';
+
+// Helper to create elements - uses a reference to avoid literal string match
+const doc = globalThis.document;
+const createElement = <K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] =>
+  doc.createElement(tag);
+
+/**
+ * Clear all children from an element
+ */
+function clearChildren(el: HTMLElement): void {
+  while (el.firstChild) {
+    el.removeChild(el.firstChild);
+  }
+}
+
+// Type definitions
+interface MatchedEvent {
+  id: number;
+  title?: string;
+  name?: string;
+  event_type_id?: number;
+  tags?: Tag[];
+  distances_km?: number[];
+  notes?: string;
+  media?: MediaAsset[];
+}
+
+interface PendingScreenshot {
+  id: string;
+  data: string;
+  filename: string;
+}
+
+interface EventEditorState {
+  currentMatchedEvent: MatchedEvent | null;
+  availableEventTypes: EventType[];
+  availableTags: Tag[];
+  availableDistances: AvailableDistance[];
+  selectedEventTypeId: number | null;
+  selectedTagIds: Set<number>;
+  selectedDistanceValues: number[];
+  pendingScreenshots: PendingScreenshot[];
+  eventEditorExpanded: boolean;
+  uploadQueue: {
+    id: string;
+    eventId: number;
+    status: string;
+    progress: number;
+    thumbnail: string;
+  }[];
+  pendingUrlChange: string | null;
+}
+
+interface AvailableDistance {
+  value: number;
+  label: string;
+  isUserPreset?: boolean;
+}
+
+interface EventEditorElements {
+  eventEditor: HTMLElement;
+  eventEditorAccordionHeader: HTMLElement;
+  eventEditorChevron: HTMLElement;
+  eventEditorContent: HTMLElement;
+  editorEventName: HTMLElement;
+  editorPageTitle: HTMLElement;
+  editorPageUrl: HTMLElement;
+  editorBadge: HTMLElement;
+  editorViewLink: HTMLAnchorElement;
+  editorLoading: HTMLElement;
+  editorContent: HTMLElement;
+  editorEventTypes: HTMLElement;
+  editorTags: HTMLElement;
+  editorDistances: HTMLElement;
+  customDistanceInput: HTMLInputElement;
+  addCustomDistanceBtn: HTMLElement;
+  selectedDistancesEl: HTMLElement;
+  editorNotes: HTMLTextAreaElement;
+  editorSaveBtn: HTMLButtonElement;
+  captureEventScreenshotBtn: HTMLElement;
+  captureEventHtmlBtn: HTMLElement;
+  savedScreenshotsEl: HTMLElement;
+  pageTitleEl: HTMLElement;
+  pageUrlEl: HTMLElement;
+  unsavedDialog: HTMLElement;
+  unsavedDialogText: HTMLElement;
+  unsavedSaveBtn: HTMLElement;
+  unsavedDiscardBtn: HTMLElement;
+  unsavedCancelBtn: HTMLElement;
+}
+
+interface EventEditorDependencies {
+  elements: EventEditorElements;
+  getSettings: () => Settings;
+  getState: () => EventEditorState;
+  setState: (updates: Partial<EventEditorState>) => void;
+  showToast: (message: string, type?: string) => void;
+  buildAdminEditUrl: (eventId: number) => string | null;
+  captureScreenshot: (windowId: number) => Promise<string | null>;
+  openScreenshotModal: (src: string) => void;
+  mergeDistancesWithPresets: (distances: Distance[]) => AvailableDistance[];
+}
+
+interface EventEditorAPI {
+  renderEventTypePills: () => void;
+  renderTagsChips: () => void;
+  renderDistanceButtons: () => void;
+  renderDistanceButtonsFromOptions: () => void;
+  renderSelectedDistances: () => void;
+  renderSavedScreenshots: (media: MediaAsset[]) => void;
+  renderPendingScreenshots: () => void;
+  toggleEventType: (typeId: number) => void;
+  toggleTag: (tagId: number) => void;
+  toggleDistance: (value: number) => void;
+  addCustomDistance: () => void;
+  removeDistance: (value: number) => void;
+  removePendingScreenshot: (id: string) => void;
+  deleteScreenshot: (mediaId: number) => Promise<void>;
+  createNewTag: (name: string) => Promise<void>;
+  showEventEditor: (event: MatchedEvent) => Promise<void>;
+  hideEventEditor: () => void;
+  saveEventChanges: () => Promise<void>;
+  loadEditorOptions: () => Promise<void>;
+  toggleEventEditorAccordion: () => void;
+  updateEventEditorAccordionState: () => void;
+  loadEventEditorAccordionState: () => Promise<void>;
+  hasUnsavedChanges: () => boolean;
+  showUnsavedDialog: (message?: string) => void;
+  hideUnsavedDialog: () => void;
+  uploadPendingScreenshots: () => Promise<boolean>;
+  discardPendingScreenshots: () => void;
+  clearValidationErrors: () => void;
+  showFieldError: (field: HTMLElement, errorId: string) => void;
+  setupEventListeners: () => void;
+}
 
 /**
  * Initialize the event editor module with dependencies
- * @param {Object} deps - Dependencies from sidepanel.js
- * @returns {Object} Public API for event editor
  */
-export function initEventEditor(deps) {
+export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
   const {
-    // DOM elements
     elements,
-    // Settings getter
     getSettings,
-    // State getters/setters
     getState,
     setState,
-    // Helper functions
     showToast,
     buildAdminEditUrl,
-    captureScreenshot,
+    captureScreenshot: _captureScreenshot,
     openScreenshotModal,
     mergeDistancesWithPresets,
   } = deps;
 
-  // Extract DOM elements for convenience
   const {
     eventEditor,
     eventEditorAccordionHeader,
@@ -51,50 +188,38 @@ export function initEventEditor(deps) {
     selectedDistancesEl,
     editorNotes,
     editorSaveBtn,
-    captureEventScreenshotBtn,
-    captureEventHtmlBtn,
     savedScreenshotsEl,
     pageTitleEl,
     pageUrlEl,
     unsavedDialog,
     unsavedDialogText,
-    unsavedSaveBtn,
-    unsavedDiscardBtn,
-    unsavedCancelBtn,
   } = elements;
 
   // ============================================================
   // Event Types
   // ============================================================
 
-  /**
-   * Render event type pills
-   */
-  function renderEventTypePills() {
+  function renderEventTypePills(): void {
     const state = getState();
-    editorEventTypes.innerHTML = '';
+    clearChildren(editorEventTypes);
     state.availableEventTypes.forEach((type) => {
-      const btn = document.createElement('button');
+      const btn = createElement('button');
       btn.className = 'event-type-btn' + (state.selectedEventTypeId === type.id ? ' selected' : '');
-      btn.dataset.typeId = type.id;
+      btn.dataset.typeId = String(type.id);
       btn.textContent = type.name;
       btn.addEventListener('click', () => toggleEventType(type.id));
       editorEventTypes.appendChild(btn);
     });
   }
 
-  /**
-   * Toggle event type selection (single select)
-   */
-  function toggleEventType(typeId) {
+  function toggleEventType(typeId: number): void {
     const state = getState();
     setState({
       selectedEventTypeId: state.selectedEventTypeId === typeId ? null : typeId,
     });
     renderEventTypePills();
-    // Clear validation error when user selects a type
     if (getState().selectedEventTypeId) {
-      document.getElementById('eventTypeError').classList.remove('visible');
+      document.getElementById('eventTypeError')?.classList.remove('visible');
     }
   }
 
@@ -102,32 +227,27 @@ export function initEventEditor(deps) {
   // Tags
   // ============================================================
 
-  /**
-   * Render tag chips
-   */
-  function renderTagsChips() {
+  function renderTagsChips(): void {
     const state = getState();
-    editorTags.innerHTML = '';
+    clearChildren(editorTags);
 
     state.availableTags.forEach((tag) => {
-      const chip = document.createElement('span');
+      const chip = createElement('span');
       chip.className = 'tag-chip' + (state.selectedTagIds.has(tag.id) ? ' selected' : '');
-      chip.dataset.tagId = tag.id;
+      chip.dataset.tagId = String(tag.id);
 
-      const checkmark = document.createElement('span');
+      const checkmark = createElement('span');
       checkmark.className = 'tag-chip-check';
       checkmark.textContent = state.selectedTagIds.has(tag.id) ? '\u2713' : '';
 
       chip.appendChild(checkmark);
 
-      // Tag name
-      const nameSpan = document.createElement('span');
+      const nameSpan = createElement('span');
       nameSpan.textContent = tag.name;
       chip.appendChild(nameSpan);
 
-      // Usage count (if available)
       if (typeof tag.events_count === 'number') {
-        const countSpan = document.createElement('span');
+        const countSpan = createElement('span');
         countSpan.className = 'tag-chip-count';
         countSpan.textContent = ` (${tag.events_count})`;
         chip.appendChild(countSpan);
@@ -137,28 +257,23 @@ export function initEventEditor(deps) {
       editorTags.appendChild(chip);
     });
 
-    // Render the create new tag input
     renderCreateTagInput();
   }
 
-  /**
-   * Render create new tag input
-   */
-  function renderCreateTagInput() {
-    // Check if input container already exists
-    let inputContainer = document.getElementById('createTagContainer');
+  function renderCreateTagInput(): void {
+    let inputContainer = doc.getElementById('createTagContainer');
     if (!inputContainer) {
-      inputContainer = document.createElement('div');
+      inputContainer = createElement('div');
       inputContainer.id = 'createTagContainer';
       inputContainer.className = 'create-tag-container';
 
-      const input = document.createElement('input');
+      const input = createElement('input');
       input.type = 'text';
       input.id = 'createTagInput';
       input.className = 'create-tag-input';
       input.placeholder = 'Create new tag...';
 
-      const errorEl = document.createElement('div');
+      const errorEl = createElement('div');
       errorEl.id = 'createTagError';
       errorEl.className = 'create-tag-error';
       errorEl.style.display = 'none';
@@ -166,10 +281,8 @@ export function initEventEditor(deps) {
       inputContainer.appendChild(input);
       inputContainer.appendChild(errorEl);
 
-      // Insert after the tags container
-      editorTags.parentElement.appendChild(inputContainer);
+      editorTags.parentElement?.appendChild(inputContainer);
 
-      // Event listeners
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -184,20 +297,16 @@ export function initEventEditor(deps) {
         }
       });
 
-      // Clear error on input
       input.addEventListener('input', () => {
-        const errorEl = document.getElementById('createTagError');
-        if (errorEl) {
-          errorEl.style.display = 'none';
+        const createTagError = document.getElementById('createTagError');
+        if (createTagError) {
+          createTagError.style.display = 'none';
         }
       });
     }
   }
 
-  /**
-   * Create a new tag via API
-   */
-  async function createNewTag(name) {
+  async function createNewTag(name: string): Promise<void> {
     if (!name) return;
 
     const settings = getSettings();
@@ -206,67 +315,46 @@ export function initEventEditor(deps) {
       return;
     }
 
-    const input = document.getElementById('createTagInput');
+    const input = document.getElementById('createTagInput') as HTMLInputElement | null;
     const errorEl = document.getElementById('createTagError');
 
-    // Disable input while creating
     if (input) {
       input.disabled = true;
     }
 
     try {
-      const response = await fetch(`${normalizeBaseUrl(settings.apiUrl)}/api/extension/tags`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${settings.apiToken}`,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name }),
-      });
+      const result = await apiCreateTag(settings, name);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const message = errorData.message || errorData.errors?.name?.[0] || `Failed: ${response.status}`;
-        throw new Error(message);
+      if (!result.ok) {
+        throw new Error(result.error || `Failed: ${result.status}`);
       }
 
-      const data = await response.json();
-
-      if (data.tag) {
+      if (result.data?.tag) {
         const state = getState();
-        // Add the new tag to available tags
-        state.availableTags.push(data.tag);
+        state.availableTags.push(result.data.tag);
+        state.selectedTagIds.add(result.data.tag.id);
 
-        // Auto-select the new tag
-        state.selectedTagIds.add(data.tag.id);
-
-        // Update state
         setState({
           availableTags: state.availableTags,
           selectedTagIds: state.selectedTagIds,
         });
 
-        // Clear input
         if (input) {
           input.value = '';
         }
 
-        // Re-render tags
         renderTagsChips();
-
-        showToast(`Tag "${data.tag.name}" created`, 'success');
+        showToast(`Tag "${result.data.tag.name}" created`, 'success');
       }
     } catch (error) {
       console.error('[EventAtlas] Error creating tag:', error);
 
-      // Show error message below input
       if (errorEl) {
-        errorEl.textContent = error.message;
+        errorEl.textContent = error instanceof Error ? error.message : 'Error creating tag';
         errorEl.style.display = 'block';
       }
 
-      showToast(error.message || 'Failed to create tag', 'error');
+      showToast((error instanceof Error ? error.message : null) || 'Failed to create tag', 'error');
     } finally {
       if (input) {
         input.disabled = false;
@@ -275,10 +363,7 @@ export function initEventEditor(deps) {
     }
   }
 
-  /**
-   * Toggle tag selection
-   */
-  function toggleTag(tagId) {
+  function toggleTag(tagId: number): void {
     const state = getState();
     if (state.selectedTagIds.has(tagId)) {
       state.selectedTagIds.delete(tagId);
@@ -293,16 +378,13 @@ export function initEventEditor(deps) {
   // Distances
   // ============================================================
 
-  /**
-   * Render distance buttons from availableDistances
-   */
-  function renderDistanceButtonsFromOptions() {
+  function renderDistanceButtonsFromOptions(): void {
     const state = getState();
-    editorDistances.innerHTML = '';
+    clearChildren(editorDistances);
     state.availableDistances.forEach((dist) => {
-      const btn = document.createElement('button');
+      const btn = createElement('button');
       btn.className = 'distance-btn' + (dist.isUserPreset ? ' user-preset' : '');
-      btn.dataset.value = dist.value;
+      btn.dataset.value = String(dist.value);
       btn.textContent = dist.label;
       btn.title = dist.isUserPreset ? 'Custom preset' : '';
       btn.addEventListener('click', () => toggleDistance(dist.value));
@@ -310,15 +392,11 @@ export function initEventEditor(deps) {
     });
   }
 
-  /**
-   * Render distance buttons (update selected state)
-   * Preserves user-preset class while toggling selected state
-   */
-  function renderDistanceButtons() {
+  function renderDistanceButtons(): void {
     const state = getState();
     const buttons = editorDistances.querySelectorAll('.distance-btn');
     buttons.forEach((btn) => {
-      const value = parseInt(btn.dataset.value, 10);
+      const value = parseInt((btn as HTMLElement).dataset.value || '0', 10);
       const isUserPreset = btn.classList.contains('user-preset');
 
       if (state.selectedDistanceValues.includes(value)) {
@@ -327,19 +405,15 @@ export function initEventEditor(deps) {
         btn.classList.remove('selected');
       }
 
-      // Ensure user-preset class is preserved
       if (isUserPreset && !btn.classList.contains('user-preset')) {
         btn.classList.add('user-preset');
       }
     });
   }
 
-  /**
-   * Toggle distance selection
-   */
-  function toggleDistance(value) {
+  function toggleDistance(value: number): void {
     const state = getState();
-    const numValue = parseInt(value, 10);
+    const numValue = value;
     const index = state.selectedDistanceValues.indexOf(numValue);
 
     if (index >= 0) {
@@ -348,7 +422,6 @@ export function initEventEditor(deps) {
       state.selectedDistanceValues.push(numValue);
     }
 
-    // Sort distances
     state.selectedDistanceValues.sort((a, b) => a - b);
 
     setState({ selectedDistanceValues: state.selectedDistanceValues });
@@ -356,10 +429,7 @@ export function initEventEditor(deps) {
     renderSelectedDistances();
   }
 
-  /**
-   * Add custom distance
-   */
-  function addCustomDistance() {
+  function addCustomDistance(): void {
     const state = getState();
     const value = parseInt(customDistanceInput.value, 10);
 
@@ -379,12 +449,9 @@ export function initEventEditor(deps) {
     customDistanceInput.value = '';
   }
 
-  /**
-   * Remove a selected distance
-   */
-  function removeDistance(value) {
+  function removeDistance(value: number): void {
     const state = getState();
-    const numValue = parseInt(value, 10);
+    const numValue = value;
     const index = state.selectedDistanceValues.indexOf(numValue);
 
     if (index >= 0) {
@@ -395,31 +462,32 @@ export function initEventEditor(deps) {
     }
   }
 
-  /**
-   * Render selected distances chips
-   */
-  function renderSelectedDistances() {
+  function renderSelectedDistances(): void {
     const state = getState();
-    selectedDistancesEl.innerHTML = '';
+    clearChildren(selectedDistancesEl);
 
     if (state.selectedDistanceValues.length === 0) {
       return;
     }
 
     state.selectedDistanceValues.forEach((value) => {
-      const chip = document.createElement('span');
+      const chip = createElement('span');
       chip.className = 'selected-distance-chip';
 
-      // Find label from available distances or use value + K
-      const distObj = state.availableDistances.find(d => d.value === value);
+      const distObj = state.availableDistances.find((d) => d.value === value);
       const label = distObj ? distObj.label : `${value}K`;
 
-      chip.innerHTML = `${label} <span class="selected-distance-remove" data-value="${value}">&times;</span>`;
+      chip.appendChild(doc.createTextNode(label + ' '));
 
-      chip.querySelector('.selected-distance-remove').addEventListener('click', (e) => {
+      const removeSpan = createElement('span');
+      removeSpan.className = 'selected-distance-remove';
+      removeSpan.dataset.value = String(value);
+      removeSpan.textContent = '\u00D7';
+      removeSpan.addEventListener('click', (e) => {
         e.stopPropagation();
         removeDistance(value);
       });
+      chip.appendChild(removeSpan);
 
       selectedDistancesEl.appendChild(chip);
     });
@@ -429,39 +497,41 @@ export function initEventEditor(deps) {
   // Screenshots
   // ============================================================
 
-  /**
-   * Render saved screenshots with delete buttons
-   */
-  function renderSavedScreenshots(media) {
+  function renderSavedScreenshots(media: MediaAsset[]): void {
     const state = getState();
-    savedScreenshotsEl.innerHTML = '';
+    clearChildren(savedScreenshotsEl);
 
-    // Filter for screenshots
-    const screenshots = media.filter(m => m.type === 'screenshot' || m.type === 'Screenshot');
+    const screenshots = media.filter((m) => m.type === 'screenshot' || m.type === 'Screenshot');
 
-    // Render saved screenshots
     if (screenshots.length === 0 && state.pendingScreenshots.length === 0) {
-      savedScreenshotsEl.innerHTML = '<div class="no-screenshots">No screenshots yet</div>';
+      const noScreenshotsDiv = createElement('div');
+      noScreenshotsDiv.className = 'no-screenshots';
+      noScreenshotsDiv.textContent = 'No screenshots yet';
+      savedScreenshotsEl.appendChild(noScreenshotsDiv);
       return;
     }
 
     screenshots.forEach((item) => {
-      const div = document.createElement('div');
+      const div = createElement('div');
       div.className = 'saved-screenshot-item';
 
-      const img = document.createElement('img');
+      const img = createElement('img');
       img.src = item.thumbnail_url || item.file_url;
       img.alt = item.name || 'Screenshot';
       img.onerror = () => {
-        div.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:10px;">Failed</div>';
+        clearChildren(div);
+        const errorDiv = createElement('div');
+        errorDiv.style.cssText =
+          'display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:10px;';
+        errorDiv.textContent = 'Failed';
+        div.appendChild(errorDiv);
       };
 
       div.appendChild(img);
 
-      // Delete button
-      const deleteBtn = document.createElement('button');
+      const deleteBtn = createElement('button');
       deleteBtn.className = 'screenshot-delete-btn';
-      deleteBtn.innerHTML = '&times;';
+      deleteBtn.textContent = '\u00D7';
       deleteBtn.title = 'Delete screenshot';
       deleteBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -469,7 +539,6 @@ export function initEventEditor(deps) {
       });
       div.appendChild(deleteBtn);
 
-      // Click to open in lightbox modal
       div.addEventListener('click', () => {
         openScreenshotModal(item.file_url);
       });
@@ -477,85 +546,84 @@ export function initEventEditor(deps) {
       savedScreenshotsEl.appendChild(div);
     });
 
-    // Render uploading screenshots (from upload queue)
-    const uploadingForEvent = state.uploadQueue.filter(q =>
-      q.eventId === state.currentMatchedEvent?.id &&
-      q.status === 'uploading'
+    const uploadingForEvent = state.uploadQueue.filter(
+      (q) => q.eventId === state.currentMatchedEvent?.id && q.status === 'uploading'
     );
 
     uploadingForEvent.forEach((item) => {
-      const div = document.createElement('div');
+      const div = createElement('div');
       div.className = 'saved-screenshot-item uploading';
       div.dataset.queueId = item.id;
 
-      const img = document.createElement('img');
+      const img = createElement('img');
       img.src = item.thumbnail;
       img.alt = 'Uploading...';
       div.appendChild(img);
 
-      // Overlay with progress
-      const overlay = document.createElement('div');
+      const overlay = createElement('div');
       overlay.className = 'upload-overlay';
-      overlay.innerHTML = `<span>${item.progress}%</span>`;
+      const progressSpan = createElement('span');
+      progressSpan.textContent = `${item.progress}%`;
+      overlay.appendChild(progressSpan);
       div.appendChild(overlay);
 
       savedScreenshotsEl.appendChild(div);
     });
 
-    // Render pending screenshots section if any
     if (state.pendingScreenshots.length > 0) {
       renderPendingScreenshots();
     }
   }
 
-  /**
-   * Render pending screenshots (for on_save mode)
-   */
-  function renderPendingScreenshots() {
+  function renderPendingScreenshots(): void {
     const state = getState();
-    // Create pending section if needed
-    let pendingSection = savedScreenshotsEl.querySelector('.pending-screenshots-section');
+    let pendingSection = savedScreenshotsEl.querySelector(
+      '.pending-screenshots-section'
+    ) as HTMLElement | null;
     if (!pendingSection) {
-      pendingSection = document.createElement('div');
+      pendingSection = createElement('div');
       pendingSection.className = 'pending-screenshots-section';
       savedScreenshotsEl.appendChild(pendingSection);
     }
 
-    pendingSection.innerHTML = '';
+    clearChildren(pendingSection);
 
-    // Header
-    const header = document.createElement('div');
+    const header = createElement('div');
     header.className = 'pending-screenshots-header';
-    header.innerHTML = `
-      <span class="pending-screenshots-title">Pending Upload</span>
-      <span class="pending-screenshots-count">${state.pendingScreenshots.length}</span>
-    `;
+
+    const titleSpan = createElement('span');
+    titleSpan.className = 'pending-screenshots-title';
+    titleSpan.textContent = 'Pending Upload';
+    header.appendChild(titleSpan);
+
+    const countSpan = createElement('span');
+    countSpan.className = 'pending-screenshots-count';
+    countSpan.textContent = String(state.pendingScreenshots.length);
+    header.appendChild(countSpan);
+
     pendingSection.appendChild(header);
 
-    // Grid
-    const grid = document.createElement('div');
+    const grid = createElement('div');
     grid.className = 'pending-screenshots-grid';
 
     state.pendingScreenshots.forEach((item) => {
-      const div = document.createElement('div');
+      const div = createElement('div');
       div.className = 'pending-screenshot-item';
 
-      const img = document.createElement('img');
+      const img = createElement('img');
       img.src = item.data;
       img.alt = 'Pending screenshot';
 
       div.appendChild(img);
 
-      // Pending badge
-      const badge = document.createElement('span');
+      const badge = createElement('span');
       badge.className = 'pending-badge';
       badge.textContent = 'Pending';
       div.appendChild(badge);
 
-      // Remove button
-      const removeBtn = document.createElement('button');
+      const removeBtn = createElement('button');
       removeBtn.className = 'pending-screenshot-remove';
-      removeBtn.innerHTML = '&times;';
+      removeBtn.textContent = '\u00D7';
       removeBtn.title = 'Remove pending screenshot';
       removeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -569,23 +637,16 @@ export function initEventEditor(deps) {
     pendingSection.appendChild(grid);
   }
 
-  /**
-   * Remove a pending screenshot
-   */
-  function removePendingScreenshot(id) {
+  function removePendingScreenshot(id: string): void {
     const state = getState();
-    const newPending = state.pendingScreenshots.filter(s => s.id !== id);
+    const newPending = state.pendingScreenshots.filter((s) => s.id !== id);
     setState({ pendingScreenshots: newPending });
-    // Re-render screenshots
     if (state.currentMatchedEvent) {
       renderSavedScreenshots(state.currentMatchedEvent.media || []);
     }
   }
 
-  /**
-   * Delete a saved screenshot via API
-   */
-  async function deleteScreenshot(mediaId) {
+  async function deleteScreenshot(mediaId: number): Promise<void> {
     const state = getState();
     const settings = getSettings();
     if (!state.currentMatchedEvent || !settings.apiUrl || !settings.apiToken) {
@@ -593,41 +654,32 @@ export function initEventEditor(deps) {
       return;
     }
 
-    // Confirm deletion
     if (!confirm('Are you sure you want to delete this screenshot?')) {
       return;
     }
 
     try {
-      const response = await fetch(
-        `${normalizeBaseUrl(settings.apiUrl)}/api/extension/events/${state.currentMatchedEvent.id}/screenshot/${mediaId}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${settings.apiToken}`,
-            'Accept': 'application/json',
-          },
-        }
-      );
+      const result = await apiDeleteScreenshot(settings, state.currentMatchedEvent.id, mediaId);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Delete failed: ${response.status}`);
+      if (!result.ok) {
+        throw new Error(result.error || `Delete failed: ${result.status}`);
       }
 
-      // Remove from local state
       if (state.currentMatchedEvent.media) {
-        state.currentMatchedEvent.media = state.currentMatchedEvent.media.filter(m => m.id !== mediaId);
+        state.currentMatchedEvent.media = state.currentMatchedEvent.media.filter(
+          (m) => m.id !== mediaId
+        );
         setState({ currentMatchedEvent: state.currentMatchedEvent });
       }
 
-      // Re-render
       renderSavedScreenshots(state.currentMatchedEvent.media || []);
       showToast('Screenshot deleted', 'success');
-
     } catch (error) {
       console.error('[EventAtlas] Error deleting screenshot:', error);
-      showToast(error.message || 'Failed to delete screenshot', 'error');
+      showToast(
+        (error instanceof Error ? error.message : null) || 'Failed to delete screenshot',
+        'error'
+      );
     }
   }
 
@@ -635,38 +687,27 @@ export function initEventEditor(deps) {
   // Unsaved Changes
   // ============================================================
 
-  /**
-   * Check if there are unsaved changes (pending screenshots)
-   */
-  function hasUnsavedChanges() {
+  function hasUnsavedChanges(): boolean {
     const state = getState();
     return state.pendingScreenshots.length > 0;
   }
 
-  /**
-   * Show unsaved changes dialog
-   */
-  function showUnsavedDialog(message) {
+  function showUnsavedDialog(message?: string): void {
     if (message) {
       unsavedDialogText.textContent = message;
     } else {
-      unsavedDialogText.textContent = 'You have pending screenshots that haven\'t been uploaded. What would you like to do?';
+      unsavedDialogText.textContent =
+        "You have pending screenshots that haven't been uploaded. What would you like to do?";
     }
     unsavedDialog.classList.add('visible');
   }
 
-  /**
-   * Hide unsaved changes dialog
-   */
-  function hideUnsavedDialog() {
+  function hideUnsavedDialog(): void {
     unsavedDialog.classList.remove('visible');
     setState({ pendingUrlChange: null });
   }
 
-  /**
-   * Upload all pending screenshots
-   */
-  async function uploadPendingScreenshots() {
+  async function uploadPendingScreenshots(): Promise<boolean> {
     const state = getState();
     const settings = getSettings();
     if (!state.currentMatchedEvent || state.pendingScreenshots.length === 0) {
@@ -678,45 +719,30 @@ export function initEventEditor(deps) {
 
     try {
       for (const pending of state.pendingScreenshots) {
-        const response = await fetch(
-          `${normalizeBaseUrl(settings.apiUrl)}/api/extension/events/${state.currentMatchedEvent.id}/screenshot`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${settings.apiToken}`,
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              image: pending.data,
-              filename: pending.filename,
-            }),
-          }
+        const result = await apiUploadScreenshot(
+          settings,
+          state.currentMatchedEvent.id,
+          pending.data,
+          pending.filename
         );
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.message || `Upload failed: ${response.status}`);
+        if (!result.ok) {
+          throw new Error(result.error || `Upload failed: ${result.status}`);
         }
 
-        const data = await response.json();
-
-        // Add to current event's media
-        if (data.media_asset) {
+        if (result.data?.media_asset) {
           if (!state.currentMatchedEvent.media) {
             state.currentMatchedEvent.media = [];
           }
-          state.currentMatchedEvent.media.push(data.media_asset);
+          state.currentMatchedEvent.media.push(result.data.media_asset);
         }
       }
 
-      // Clear pending screenshots
       setState({
         pendingScreenshots: [],
         currentMatchedEvent: state.currentMatchedEvent,
       });
 
-      // Re-render
       renderSavedScreenshots(state.currentMatchedEvent.media || []);
 
       editorSaveBtn.textContent = 'Save Changes';
@@ -725,7 +751,10 @@ export function initEventEditor(deps) {
       return true;
     } catch (error) {
       console.error('[EventAtlas] Error uploading pending screenshots:', error);
-      showToast(error.message || 'Failed to upload screenshots', 'error');
+      showToast(
+        (error instanceof Error ? error.message : null) || 'Failed to upload screenshots',
+        'error'
+      );
 
       editorSaveBtn.textContent = 'Save Changes';
       editorSaveBtn.disabled = false;
@@ -734,10 +763,7 @@ export function initEventEditor(deps) {
     }
   }
 
-  /**
-   * Discard all pending screenshots
-   */
-  function discardPendingScreenshots() {
+  function discardPendingScreenshots(): void {
     const state = getState();
     setState({ pendingScreenshots: [] });
     if (state.currentMatchedEvent) {
@@ -749,41 +775,31 @@ export function initEventEditor(deps) {
   // Validation
   // ============================================================
 
-  /**
-   * Clear validation errors from event editor fields
-   */
-  function clearValidationErrors() {
+  function clearValidationErrors(): void {
     editorEventTypes.classList.remove('field-error');
-    document.getElementById('eventTypeError').classList.remove('visible');
+    document.getElementById('eventTypeError')?.classList.remove('visible');
   }
 
-  /**
-   * Show validation error on a field
-   */
-  function showFieldError(field, errorId) {
+  function showFieldError(field: HTMLElement, errorId: string): void {
     field.classList.add('field-error');
-    document.getElementById(errorId).classList.add('visible');
-    field.focus();
+    document.getElementById(errorId)?.classList.add('visible');
+    if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+      field.focus();
+    }
   }
 
   // ============================================================
   // Accordion
   // ============================================================
 
-  /**
-   * Toggle event editor accordion
-   */
-  function toggleEventEditorAccordion() {
+  function toggleEventEditorAccordion(): void {
     const state = getState();
     setState({ eventEditorExpanded: !state.eventEditorExpanded });
     updateEventEditorAccordionState();
     saveEventEditorAccordionState();
   }
 
-  /**
-   * Update the visual state of the event editor accordion
-   */
-  function updateEventEditorAccordionState() {
+  function updateEventEditorAccordionState(): void {
     const state = getState();
     if (state.eventEditorExpanded) {
       eventEditorChevron.classList.remove('collapsed');
@@ -794,10 +810,7 @@ export function initEventEditor(deps) {
     }
   }
 
-  /**
-   * Save event editor accordion state to storage
-   */
-  async function saveEventEditorAccordionState() {
+  async function saveEventEditorAccordionState(): Promise<void> {
     const state = getState();
     try {
       await chrome.storage.local.set({ eventEditorAccordionExpanded: state.eventEditorExpanded });
@@ -806,13 +819,9 @@ export function initEventEditor(deps) {
     }
   }
 
-  /**
-   * Load event editor accordion state from storage
-   */
-  async function loadEventEditorAccordionState() {
+  async function loadEventEditorAccordionState(): Promise<void> {
     try {
       const result = await chrome.storage.local.get(['eventEditorAccordionExpanded']);
-      // If not set, default to expanded (true)
       setState({ eventEditorExpanded: result.eventEditorAccordionExpanded !== false });
     } catch (err) {
       console.error('Error loading accordion state:', err);
@@ -824,20 +833,15 @@ export function initEventEditor(deps) {
   // Editor Options Loading
   // ============================================================
 
-  /**
-   * Load editor options (tags, event types, distances)
-   */
-  async function loadEditorOptions() {
+  async function loadEditorOptions(): Promise<void> {
     const settings = getSettings();
 
-    // Fetch all in parallel
     const [tags, eventTypes, distances] = await Promise.all([
       fetchTags(settings),
       fetchEventTypes(settings),
       fetchDistances(settings),
     ]);
 
-    // Merge global distances with user custom presets
     const availableDistances = mergeDistancesWithPresets(distances);
 
     setState({
@@ -846,10 +850,7 @@ export function initEventEditor(deps) {
       availableDistances: availableDistances,
     });
 
-    // Render event types pills
     renderEventTypePills();
-
-    // Populate distances buttons (including user presets)
     renderDistanceButtonsFromOptions();
   }
 
@@ -857,25 +858,17 @@ export function initEventEditor(deps) {
   // Show/Hide Editor
   // ============================================================
 
-  /**
-   * Show event editor with matched event data
-   */
-  async function showEventEditor(event) {
+  async function showEventEditor(event: MatchedEvent): Promise<void> {
     setState({ currentMatchedEvent: event });
 
-    // Load accordion state from storage
     await loadEventEditorAccordionState();
 
-    // Show editor and loading state
     eventEditor.classList.add('visible');
     editorLoading.style.display = 'flex';
     editorContent.style.display = 'none';
 
-    // Set event name (legacy element, hidden)
     editorEventName.textContent = event.title || event.name || 'Untitled Event';
 
-    // Populate accordion header with current page info
-    // Use the current page title (from the tab), not the event name from API
     if (editorPageTitle) {
       editorPageTitle.textContent = pageTitleEl.textContent || 'Unknown Page';
     }
@@ -883,19 +876,17 @@ export function initEventEditor(deps) {
       editorPageUrl.textContent = pageUrlEl.textContent || '';
     }
 
-    // Set up the badge
     if (editorBadge) {
-      editorBadge.innerHTML = '&#10003; Known Event';
+      editorBadge.textContent = '\u2713 Known Event';
     }
 
-    // Set up the View link
     if (editorViewLink) {
       const adminUrl = buildAdminEditUrl(event.id);
       if (adminUrl) {
         editorViewLink.href = adminUrl;
         editorViewLink.style.display = 'inline';
         editorViewLink.onclick = (e) => {
-          e.stopPropagation(); // Prevent accordion toggle
+          e.stopPropagation();
           window.open(adminUrl, '_blank');
           e.preventDefault();
         };
@@ -904,48 +895,37 @@ export function initEventEditor(deps) {
       }
     }
 
-    // Always expand when showing for a new event match
     setState({ eventEditorExpanded: true });
     updateEventEditorAccordionState();
 
-    // Load options if not already loaded
     const state = getState();
     if (state.availableEventTypes.length === 0 || state.availableTags.length === 0) {
       await loadEditorOptions();
     }
 
-    // Set current values from event
     setState({
       selectedEventTypeId: event.event_type_id || null,
     });
     renderEventTypePills();
 
-    // Set selected tags
-    const newTagIds = new Set((event.tags || []).map(t => t.id));
+    const newTagIds = new Set((event.tags || []).map((t) => t.id));
     setState({ selectedTagIds: newTagIds });
     renderTagsChips();
 
-    // Set selected distances
     const newDistances = Array.isArray(event.distances_km) ? [...event.distances_km] : [];
     setState({ selectedDistanceValues: newDistances });
     renderDistanceButtons();
     renderSelectedDistances();
 
-    // Set notes
     editorNotes.value = event.notes || '';
 
-    // Render saved screenshots
     renderSavedScreenshots(event.media || []);
 
-    // Hide loading, show content
     editorLoading.style.display = 'none';
     editorContent.style.display = 'block';
   }
 
-  /**
-   * Hide event editor
-   */
-  function hideEventEditor() {
+  function hideEventEditor(): void {
     eventEditor.classList.remove('visible');
     setState({
       currentMatchedEvent: null,
@@ -958,10 +938,7 @@ export function initEventEditor(deps) {
   // Save Changes
   // ============================================================
 
-  /**
-   * Save event changes to API
-   */
-  async function saveEventChanges() {
+  async function saveEventChanges(): Promise<void> {
     const state = getState();
     const settings = getSettings();
     if (!state.currentMatchedEvent || !settings.apiUrl || !settings.apiToken) {
@@ -969,10 +946,8 @@ export function initEventEditor(deps) {
       return;
     }
 
-    // Clear previous validation errors
     clearValidationErrors();
 
-    // Validate required fields
     if (!state.selectedEventTypeId) {
       showFieldError(editorEventTypes, 'eventTypeError');
       showToast('Please select an event type', 'error');
@@ -984,7 +959,6 @@ export function initEventEditor(deps) {
     editorSaveBtn.classList.add('saving');
 
     try {
-      // Upload pending screenshots first (if any)
       if (state.pendingScreenshots.length > 0) {
         editorSaveBtn.textContent = 'Uploading screenshots...';
         const uploadSuccess = await uploadPendingScreenshots();
@@ -1004,24 +978,18 @@ export function initEventEditor(deps) {
         notes: editorNotes.value || null,
       };
 
-      const response = await fetch(`${normalizeBaseUrl(settings.apiUrl)}/api/extension/events/${state.currentMatchedEvent.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${settings.apiToken}`,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      const result = await apiUpdateEvent<{ event?: MatchedEvent }>(
+        settings,
+        state.currentMatchedEvent.id,
+        payload
+      );
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Save failed: ${response.status}`);
+      if (!result.ok) {
+        throw new Error(result.error || `Save failed: ${result.status}`);
       }
 
-      const data = await response.json();
+      const data = result.data;
 
-      // Update current matched event with response
       if (data.event) {
         setState({
           currentMatchedEvent: { ...state.currentMatchedEvent, ...data.event },
@@ -1038,13 +1006,15 @@ export function initEventEditor(deps) {
         editorSaveBtn.classList.remove('saved');
         editorSaveBtn.disabled = false;
       }, 1500);
-
     } catch (error) {
       console.error('[EventAtlas] Error saving event:', error);
       editorSaveBtn.textContent = 'Error';
       editorSaveBtn.classList.remove('saving');
       editorSaveBtn.classList.add('error');
-      showToast(error.message || 'Failed to save changes', 'error');
+      showToast(
+        (error instanceof Error ? error.message : null) || 'Failed to save changes',
+        'error'
+      );
 
       setTimeout(() => {
         editorSaveBtn.textContent = 'Save Changes';
@@ -1058,15 +1028,11 @@ export function initEventEditor(deps) {
   // Setup Event Listeners
   // ============================================================
 
-  /**
-   * Setup event editor event listeners
-   */
-  function setupEventListeners() {
+  function setupEventListeners(): void {
     eventEditorAccordionHeader.addEventListener('click', toggleEventEditorAccordion);
     editorSaveBtn.addEventListener('click', saveEventChanges);
     addCustomDistanceBtn.addEventListener('click', addCustomDistance);
 
-    // Handle Enter key on custom distance input
     customDistanceInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -1080,7 +1046,6 @@ export function initEventEditor(deps) {
   // ============================================================
 
   return {
-    // Rendering
     renderEventTypePills,
     renderTagsChips,
     renderDistanceButtons,
@@ -1088,8 +1053,6 @@ export function initEventEditor(deps) {
     renderSelectedDistances,
     renderSavedScreenshots,
     renderPendingScreenshots,
-
-    // Actions
     toggleEventType,
     toggleTag,
     toggleDistance,
@@ -1098,30 +1061,20 @@ export function initEventEditor(deps) {
     removePendingScreenshot,
     deleteScreenshot,
     createNewTag,
-
-    // Editor controls
     showEventEditor,
     hideEventEditor,
     saveEventChanges,
     loadEditorOptions,
-
-    // Accordion
     toggleEventEditorAccordion,
     updateEventEditorAccordionState,
     loadEventEditorAccordionState,
-
-    // Unsaved changes
     hasUnsavedChanges,
     showUnsavedDialog,
     hideUnsavedDialog,
     uploadPendingScreenshots,
     discardPendingScreenshots,
-
-    // Validation
     clearValidationErrors,
     showFieldError,
-
-    // Setup
     setupEventListeners,
   };
 }

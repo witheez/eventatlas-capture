@@ -5,8 +5,58 @@
  * Uses a factory pattern to receive dependencies from sidepanel.js.
  */
 
-import { escapeHtml, fixUrl } from './utils.js';
-import { normalizeBaseUrl } from './api.js';
+import { escapeHtml, fixUrl } from './utils';
+import {
+  fetchEventList as apiFetchEventList,
+  markEventVisited as apiMarkEventVisited,
+} from './api';
+import type { Settings, FilterState } from './storage';
+
+// Type definitions
+export interface EventListEvent {
+  id: number;
+  name: string;
+  start_datetime?: string;
+  primary_url?: string;
+  primary_link_id?: number;
+  event_type?: string;
+  tags?: string[];
+  distances?: number[];
+  missing?: string[];
+}
+
+interface EventListElements {
+  tabNavigation: HTMLElement | null;
+  bundlesView: HTMLElement | null;
+  eventListView: HTMLElement | null;
+  eventListContainer: HTMLElement | null;
+  eventListLoading: HTMLElement | null;
+  eventListEmpty: HTMLElement | null;
+  backNav: HTMLElement | null;
+  filterMissingTags: HTMLInputElement | null;
+  filterMissingDistances: HTMLInputElement | null;
+  refreshEventListBtn: HTMLElement | null;
+  autoSwitchTabSetting: HTMLInputElement | null;
+  eventListRefreshIntervalSetting: HTMLSelectElement | null;
+}
+
+interface EventListState {
+  activeTab: string;
+  eventListCache: EventListEvent[];
+  eventListLastFetched: number;
+  filterState: FilterState;
+}
+
+interface EventListDependencies {
+  elements: EventListElements;
+  getSettings: () => Settings;
+  getState: <K extends keyof EventListState>(
+    key?: K
+  ) => K extends undefined ? EventListState : EventListState[K];
+  setState: <K extends keyof EventListState>(key: K, value: EventListState[K]) => void;
+  saveFilterState: () => Promise<void>;
+  saveToStorage: () => Promise<void>;
+}
 
 // ========================================
 // Pure Functions (no dependencies)
@@ -15,14 +65,14 @@ import { normalizeBaseUrl } from './api.js';
 /**
  * Format missing badges HTML
  */
-export function formatMissingBadges(missing) {
+export function formatMissingBadges(missing: string[]): string {
   return missing.map((m) => `<span class="missing-badge">${escapeHtml(m)}</span>`).join('');
 }
 
 /**
  * Format event type badge
  */
-export function formatEventType(eventType) {
+export function formatEventType(eventType: string | undefined): string {
   if (!eventType) return '';
   return `<span class="meta-badge meta-type">${escapeHtml(eventType)}</span>`;
 }
@@ -30,7 +80,7 @@ export function formatEventType(eventType) {
 /**
  * Format tags with "1 tag + x more" pattern
  */
-export function formatTags(tags) {
+export function formatTags(tags: string[]): string {
   if (!tags || tags.length === 0) return '';
   const firstTag = tags[0];
   const moreCount = tags.length - 1;
@@ -44,7 +94,7 @@ export function formatTags(tags) {
 /**
  * Format distances array
  */
-export function formatDistances(distances) {
+export function formatDistances(distances: number[]): string {
   if (!distances || distances.length === 0) return '';
   const formatted = distances.map((d) => `${d}km`).join(', ');
   return `<span class="meta-badge meta-distance">${escapeHtml(formatted)}</span>`;
@@ -53,7 +103,7 @@ export function formatDistances(distances) {
 /**
  * Format a date as "Jan 1, 2026"
  */
-export function formatEventDate(dateString) {
+export function formatEventDate(dateString: string): string {
   if (!dateString) return '';
   try {
     const date = new Date(dateString);
@@ -65,10 +115,8 @@ export function formatEventDate(dateString) {
 
 /**
  * Get the first day of a month offset from now
- * @param {number} monthsOffset - 0 for this month, 1 for next month, etc.
- * @returns {string} ISO date string (YYYY-MM-DD)
  */
-export function getFirstOfMonth(monthsOffset) {
+export function getFirstOfMonth(monthsOffset: number): string {
   const date = new Date();
   date.setMonth(date.getMonth() + monthsOffset);
   date.setDate(1);
@@ -78,7 +126,7 @@ export function getFirstOfMonth(monthsOffset) {
 /**
  * Get a month label like "Jan 2026"
  */
-export function getMonthLabel(monthsOffset) {
+export function getMonthLabel(monthsOffset: number): string {
   const date = new Date();
   date.setMonth(date.getMonth() + monthsOffset);
   return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
@@ -87,7 +135,7 @@ export function getMonthLabel(monthsOffset) {
 /**
  * Build the "Starts from" filter options with dynamic month labels
  */
-export function buildStartsFromOptions() {
+export function buildStartsFromOptions(): { value: string; label: string }[] {
   return [
     { value: '', label: 'All dates' },
     { value: 'this_month', label: `${getMonthLabel(0)}+` },
@@ -102,15 +150,20 @@ export function buildStartsFromOptions() {
 /**
  * Convert filter preset to actual ISO date
  */
-export function getStartsFromDate(presetOrDate) {
+export function getStartsFromDate(presetOrDate: string | null): string | null {
   if (!presetOrDate) return null;
 
   switch (presetOrDate) {
-    case 'this_month': return getFirstOfMonth(0);
-    case 'next_month': return getFirstOfMonth(1);
-    case '2_months': return getFirstOfMonth(2);
-    case '3_months': return getFirstOfMonth(3);
-    case '6_months': return getFirstOfMonth(6);
+    case 'this_month':
+      return getFirstOfMonth(0);
+    case 'next_month':
+      return getFirstOfMonth(1);
+    case '2_months':
+      return getFirstOfMonth(2);
+    case '3_months':
+      return getFirstOfMonth(3);
+    case '6_months':
+      return getFirstOfMonth(6);
     default:
       // Assume it's an ISO date string
       if (/^\d{4}-\d{2}-\d{2}$/.test(presetOrDate)) {
@@ -124,23 +177,23 @@ export function getStartsFromDate(presetOrDate) {
 // Stateful Functions (require dependencies)
 // ========================================
 
+interface EventListAPI {
+  switchMainTab: (tabName: string) => void;
+  fetchEventList: () => Promise<void>;
+  renderEventList: () => void;
+  updateStartsFromDropdown: () => void;
+  showEventListLoading: () => void;
+  showEventListEmpty: (message?: string) => void;
+  navigateToEvent: (event: EventListEvent) => Promise<void>;
+  setupEventListRefresh: () => void;
+  setupEventListeners: () => void;
+}
+
 /**
  * Initialize the event list module with dependencies
- * @param {Object} deps - Dependencies from sidepanel.js
- * @returns {Object} Public API for event list
  */
-export function initEventList(deps) {
-  const {
-    // DOM elements
-    elements,
-    // Settings getter
-    getSettings,
-    // State getters/setters
-    getState,
-    setState,
-    // Storage functions
-    saveFilterState,
-  } = deps;
+export function initEventList(deps: EventListDependencies): EventListAPI {
+  const { elements, getSettings, getState, setState, saveFilterState } = deps;
 
   // Extract DOM elements for convenience
   const {
@@ -158,19 +211,19 @@ export function initEventList(deps) {
     eventListRefreshIntervalSetting,
   } = elements;
 
-  // Local state reference (will be updated via getState/setState)
-  let refreshTimer = null;
+  // Local state reference
+  let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Switch between main tabs (Current / Event List)
    */
-  function switchMainTab(tabName) {
+  function switchMainTab(tabName: string): void {
     setState('activeTab', tabName);
 
     // Update tab buttons
     if (tabNavigation) {
       tabNavigation.querySelectorAll('.tab-btn').forEach((btn) => {
-        btn.classList.toggle('active', btn.dataset.tab === tabName);
+        btn.classList.toggle('active', (btn as HTMLElement).dataset.tab === tabName);
       });
     }
 
@@ -191,7 +244,7 @@ export function initEventList(deps) {
   /**
    * Fetch event list from API
    */
-  async function fetchEventList() {
+  async function fetchEventList(): Promise<void> {
     const settings = getSettings();
     const filterState = getState('filterState');
 
@@ -203,28 +256,20 @@ export function initEventList(deps) {
     showEventListLoading();
 
     try {
-      const params = new URLSearchParams();
-      if (filterState.missingTags) params.append('missing_tags', '1');
-      if (filterState.missingDistances) params.append('missing_distances', '1');
-      params.append('filter_mode', filterState.mode);
-
-      // Add starts_from filter if set
       const startsFromDate = getStartsFromDate(filterState.startsFrom);
-      if (startsFromDate) {
-        params.append('starts_from', startsFromDate);
-      }
 
-      const response = await fetch(`${normalizeBaseUrl(settings.apiUrl)}/api/extension/event-list?${params}`, {
-        headers: {
-          Authorization: `Bearer ${settings.apiToken}`,
-          Accept: 'application/json',
-        },
+      const result = await apiFetchEventList(settings, {
+        missingTags: filterState.missingTags,
+        missingDistances: filterState.missingDistances,
+        filterMode: filterState.mode,
+        startsFrom: startsFromDate,
       });
 
-      if (!response.ok) throw new Error('Failed to fetch event list');
+      if (!result.ok) {
+        throw new Error(result.error || 'Failed to fetch event list');
+      }
 
-      const data = await response.json();
-      setState('eventListCache', data.events || []);
+      setState('eventListCache', result.data?.events || []);
       setState('eventListLastFetched', Date.now());
 
       renderEventList();
@@ -235,15 +280,24 @@ export function initEventList(deps) {
   }
 
   /**
+   * Clear all children from an element
+   */
+  function clearChildren(el: HTMLElement): void {
+    while (el.firstChild) {
+      el.removeChild(el.firstChild);
+    }
+  }
+
+  /**
    * Render the event list
    */
-  function renderEventList() {
+  function renderEventList(): void {
     if (!eventListContainer) return;
 
     const cache = getState('eventListCache');
 
     if (eventListLoading) eventListLoading.style.display = 'none';
-    eventListContainer.innerHTML = '';
+    clearChildren(eventListContainer);
 
     if (cache.length === 0) {
       if (eventListEmpty) {
@@ -256,36 +310,102 @@ export function initEventList(deps) {
     if (eventListEmpty) eventListEmpty.style.display = 'none';
 
     cache.forEach((event) => {
-      const item = document.createElement('div');
-      item.className = 'event-list-item';
       const startDate = event.start_datetime ? formatEventDate(event.start_datetime) : '';
       const eventUrl = fixUrl(event.primary_url || '');
-      item.innerHTML = `
-        <div class="event-list-item-header">
-          <div class="event-list-item-title">${escapeHtml(event.name)}</div>
-          ${startDate ? `<div class="event-list-item-date">${escapeHtml(startDate)}</div>` : ''}
-        </div>
-        <div class="event-list-item-url-row">
-          <div class="event-list-item-url">${escapeHtml(eventUrl)}</div>
-          <button class="copy-url-btn" title="Copy URL">📋</button>
-        </div>
-        <div class="event-list-item-meta">
-          ${formatEventType(event.event_type)}
-          ${formatTags(event.tags || [])}
-          ${formatDistances(event.distances || [])}
-        </div>
-        <div class="event-list-item-missing">${formatMissingBadges(event.missing || [])}</div>
-      `;
 
-      // Copy button handler
-      const copyBtn = item.querySelector('.copy-url-btn');
+      // Create event list item using Preact rendering via render module
+      // For now, use the existing HTML container which will be populated by Preact
+      // This module is being deprecated in favor of Preact components
+      const item = eventListContainer.ownerDocument.createElement('div');
+      item.className = 'event-list-item';
+
+      // Header
+      const header = item.ownerDocument.createElement('div');
+      header.className = 'event-list-item-header';
+
+      const title = item.ownerDocument.createElement('div');
+      title.className = 'event-list-item-title';
+      title.textContent = event.name;
+      header.appendChild(title);
+
+      if (startDate) {
+        const dateEl = item.ownerDocument.createElement('div');
+        dateEl.className = 'event-list-item-date';
+        dateEl.textContent = startDate;
+        header.appendChild(dateEl);
+      }
+      item.appendChild(header);
+
+      // URL row
+      const urlRow = item.ownerDocument.createElement('div');
+      urlRow.className = 'event-list-item-url-row';
+
+      const urlEl = item.ownerDocument.createElement('div');
+      urlEl.className = 'event-list-item-url';
+      urlEl.textContent = eventUrl;
+      urlRow.appendChild(urlEl);
+
+      const copyBtn = item.ownerDocument.createElement('button');
+      copyBtn.className = 'copy-url-btn';
+      copyBtn.title = 'Copy URL';
+      copyBtn.textContent = '\u{1F4CB}';
       copyBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         navigator.clipboard.writeText(eventUrl).then(() => {
-          copyBtn.textContent = '✓';
-          setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
+          copyBtn.textContent = '\u2713';
+          setTimeout(() => {
+            copyBtn.textContent = '\u{1F4CB}';
+          }, 1500);
         });
       });
+      urlRow.appendChild(copyBtn);
+      item.appendChild(urlRow);
+
+      // Meta badges
+      const meta = item.ownerDocument.createElement('div');
+      meta.className = 'event-list-item-meta';
+
+      if (event.event_type) {
+        const typeBadge = item.ownerDocument.createElement('span');
+        typeBadge.className = 'meta-badge meta-type';
+        typeBadge.textContent = event.event_type;
+        meta.appendChild(typeBadge);
+      }
+
+      if (event.tags && event.tags.length > 0) {
+        const tagBadge = item.ownerDocument.createElement('span');
+        tagBadge.className = 'meta-badge meta-tag';
+        tagBadge.textContent = event.tags[0];
+        meta.appendChild(tagBadge);
+
+        if (event.tags.length > 1) {
+          const moreSpan = item.ownerDocument.createElement('span');
+          moreSpan.className = 'meta-more';
+          moreSpan.textContent = `+${event.tags.length - 1}`;
+          meta.appendChild(moreSpan);
+        }
+      }
+
+      if (event.distances && event.distances.length > 0) {
+        const distBadge = item.ownerDocument.createElement('span');
+        distBadge.className = 'meta-badge meta-distance';
+        distBadge.textContent = event.distances.map((d) => `${d}km`).join(', ');
+        meta.appendChild(distBadge);
+      }
+      item.appendChild(meta);
+
+      // Missing badges
+      if (event.missing && event.missing.length > 0) {
+        const missingDiv = item.ownerDocument.createElement('div');
+        missingDiv.className = 'event-list-item-missing';
+        event.missing.forEach((m) => {
+          const badge = item.ownerDocument.createElement('span');
+          badge.className = 'missing-badge';
+          badge.textContent = m;
+          missingDiv.appendChild(badge);
+        });
+        item.appendChild(missingDiv);
+      }
 
       item.addEventListener('click', () => navigateToEvent(event));
       eventListContainer.appendChild(item);
@@ -295,15 +415,23 @@ export function initEventList(deps) {
   /**
    * Update the "Starts from" dropdown options
    */
-  function updateStartsFromDropdown() {
-    const dropdown = document.getElementById('filterStartsFrom');
+  function updateStartsFromDropdown(): void {
+    const dropdown = document.getElementById('filterStartsFrom') as HTMLSelectElement | null;
     if (!dropdown) return;
 
     const filterState = getState('filterState');
     const options = buildStartsFromOptions();
-    dropdown.innerHTML = options.map(opt =>
-      `<option value="${opt.value}">${escapeHtml(opt.label)}</option>`
-    ).join('');
+
+    // Clear existing options
+    clearChildren(dropdown);
+
+    // Create option elements
+    options.forEach((opt) => {
+      const optionEl = dropdown.ownerDocument.createElement('option');
+      optionEl.value = opt.value;
+      optionEl.textContent = opt.label;
+      dropdown.appendChild(optionEl);
+    });
 
     // Set current value
     if (filterState.startsFrom) {
@@ -322,8 +450,8 @@ export function initEventList(deps) {
   /**
    * Show loading state for event list
    */
-  function showEventListLoading() {
-    if (eventListContainer) eventListContainer.innerHTML = '';
+  function showEventListLoading(): void {
+    if (eventListContainer) clearChildren(eventListContainer);
     if (eventListEmpty) eventListEmpty.style.display = 'none';
     if (eventListLoading) eventListLoading.style.display = 'block';
   }
@@ -331,8 +459,8 @@ export function initEventList(deps) {
   /**
    * Show empty state for event list
    */
-  function showEventListEmpty(message) {
-    if (eventListContainer) eventListContainer.innerHTML = '';
+  function showEventListEmpty(message?: string): void {
+    if (eventListContainer) clearChildren(eventListContainer);
     if (eventListLoading) eventListLoading.style.display = 'none';
     if (eventListEmpty) {
       eventListEmpty.textContent = message || 'No events match your filters';
@@ -343,20 +471,13 @@ export function initEventList(deps) {
   /**
    * Navigate to an event URL and optionally switch to Current tab
    */
-  async function navigateToEvent(event) {
+  async function navigateToEvent(event: EventListEvent): Promise<void> {
     const settings = getSettings();
 
     // Mark as visited if we have the link ID
     if (event.primary_link_id && settings.apiUrl && settings.apiToken) {
       try {
-        await fetch(`${normalizeBaseUrl(settings.apiUrl)}/api/extension/event-list/mark-visited`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${settings.apiToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ event_link_id: event.primary_link_id }),
-        });
+        await apiMarkEventVisited(settings, event.primary_link_id);
       } catch (e) {
         console.warn('[EventAtlas] Failed to mark visit:', e);
       }
@@ -376,7 +497,7 @@ export function initEventList(deps) {
   /**
    * Setup background refresh timer for event list
    */
-  function setupEventListRefresh() {
+  function setupEventListRefresh(): void {
     if (refreshTimer) {
       clearInterval(refreshTimer);
       refreshTimer = null;
@@ -398,11 +519,13 @@ export function initEventList(deps) {
   /**
    * Setup event listeners for event list tab
    */
-  function setupEventListeners() {
+  function setupEventListeners(): void {
     // Tab navigation
     if (tabNavigation) {
       tabNavigation.querySelectorAll('.tab-btn').forEach((btn) => {
-        btn.addEventListener('click', () => switchMainTab(btn.dataset.tab));
+        btn.addEventListener('click', () =>
+          switchMainTab((btn as HTMLElement).dataset.tab || 'current')
+        );
       });
     }
 
@@ -410,7 +533,7 @@ export function initEventList(deps) {
     if (filterMissingTags) {
       filterMissingTags.addEventListener('change', async (e) => {
         const filterState = getState('filterState');
-        filterState.missingTags = e.target.checked;
+        filterState.missingTags = (e.target as HTMLInputElement).checked;
         setState('filterState', filterState);
         await saveFilterState();
         fetchEventList();
@@ -421,7 +544,7 @@ export function initEventList(deps) {
     if (filterMissingDistances) {
       filterMissingDistances.addEventListener('change', async (e) => {
         const filterState = getState('filterState');
-        filterState.missingDistances = e.target.checked;
+        filterState.missingDistances = (e.target as HTMLInputElement).checked;
         setState('filterState', filterState);
         await saveFilterState();
         fetchEventList();
@@ -429,13 +552,17 @@ export function initEventList(deps) {
     }
 
     // Starts from filter dropdown
-    const filterStartsFrom = document.getElementById('filterStartsFrom');
-    const customDateInput = document.getElementById('filterCustomDate');
-    const customDateContainer = document.getElementById('customDateContainer');
+    const filterStartsFrom = document.getElementById(
+      'filterStartsFrom'
+    ) as HTMLSelectElement | null;
+    const customDateInput = document.getElementById('filterCustomDate') as HTMLInputElement | null;
+    const customDateContainer = document.getElementById(
+      'customDateContainer'
+    ) as HTMLElement | null;
 
     if (filterStartsFrom) {
       filterStartsFrom.addEventListener('change', async (e) => {
-        const value = e.target.value;
+        const value = (e.target as HTMLSelectElement).value;
         const filterState = getState('filterState');
         if (value === 'custom') {
           // Show custom date picker
@@ -459,7 +586,7 @@ export function initEventList(deps) {
     if (customDateInput) {
       customDateInput.addEventListener('change', async (e) => {
         const filterState = getState('filterState');
-        filterState.startsFrom = e.target.value || null;
+        filterState.startsFrom = (e.target as HTMLInputElement).value || null;
         setState('filterState', filterState);
         await saveFilterState();
         fetchEventList();
@@ -472,7 +599,7 @@ export function initEventList(deps) {
         document.querySelectorAll('.filter-mode-btn').forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         const filterState = getState('filterState');
-        filterState.mode = btn.dataset.mode;
+        filterState.mode = (btn as HTMLElement).dataset.mode || 'and';
         setState('filterState', filterState);
         await saveFilterState();
         fetchEventList();
@@ -489,7 +616,6 @@ export function initEventList(deps) {
       autoSwitchTabSetting.addEventListener('change', async () => {
         const settings = getSettings();
         settings.autoSwitchTab = autoSwitchTabSetting.checked;
-        // Note: saveToStorage is called externally by sidepanel.js
         deps.saveToStorage();
       });
     }
@@ -498,7 +624,6 @@ export function initEventList(deps) {
       eventListRefreshIntervalSetting.addEventListener('change', async () => {
         const settings = getSettings();
         settings.eventListRefreshInterval = parseInt(eventListRefreshIntervalSetting.value, 10);
-        // Note: saveToStorage is called externally by sidepanel.js
         deps.saveToStorage();
         setupEventListRefresh();
       });
