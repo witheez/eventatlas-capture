@@ -34,7 +34,7 @@ function clearChildren(el: HTMLElement): void {
 }
 
 // Type definitions
-interface MatchedEvent {
+export interface MatchedEvent {
   id: number;
   title?: string;
   name?: string;
@@ -43,9 +43,10 @@ interface MatchedEvent {
   distances_km?: number[];
   notes?: string;
   media?: MediaAsset[];
+  source?: 'cache' | 'api';
 }
 
-interface PendingScreenshot {
+export interface PendingScreenshot {
   id: string;
   data: string;
   filename: string;
@@ -121,7 +122,7 @@ interface EventEditorDependencies {
   mergeDistancesWithPresets: (distances: Distance[]) => AvailableDistance[];
 }
 
-interface EventEditorAPI {
+export interface EventEditorAPI {
   renderEventTypePills: () => void;
   renderTagsChips: () => void;
   renderDistanceButtons: () => void;
@@ -320,7 +321,9 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
     const input = document.getElementById('createTagInput') as HTMLInputElement | null;
     const errorEl = document.getElementById('createTagError');
 
+    // Clear input immediately to prevent double-submit from blur event
     if (input) {
+      input.value = '';
       input.disabled = true;
     }
 
@@ -340,10 +343,6 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
           availableTags: state.availableTags,
           selectedTagIds: state.selectedTagIds,
         });
-
-        if (input) {
-          input.value = '';
-        }
 
         renderTagsChips();
         showToast(`Tag "${result.data.tag.name}" created`, 'success');
@@ -878,8 +877,15 @@ export function initEventEditor(deps: EventEditorDependencies): EventEditorAPI {
       editorPageUrl.textContent = pageUrlEl.textContent || '';
     }
 
+    // Update badge based on data source
     if (editorBadge) {
-      editorBadge.textContent = '\u2713 Known Event';
+      if (event.source === 'api') {
+        editorBadge.textContent = '\u2713 Synced';
+        editorBadge.className = 'event-editor-badge synced';
+      } else {
+        editorBadge.textContent = '\u26A1 Cached';
+        editorBadge.className = 'event-editor-badge cached';
+      }
     }
 
     if (editorViewLink) {
