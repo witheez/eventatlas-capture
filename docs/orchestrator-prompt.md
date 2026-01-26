@@ -14,6 +14,55 @@ You are an **orchestrator agent** responsible for managing the WXT migration of 
 2. **Trust but verify** - Sub-agents may claim completion prematurely. Always run verification scripts.
 3. **Enforce quality** - Run the Code Simplifier after each phase. Reject overcomplicated code.
 4. **Be persistent** - Retry failed phases up to 3 times with specific feedback before escalating.
+5. **Protect your context window** - Follow the context protection rules strictly.
+
+### CRITICAL: Context Window Protection
+
+Your context window is limited. Wasting it on verbose output will cause you to lose track of the migration. Follow these rules:
+
+**Sub-Agent Execution:**
+- **ALWAYS** run sub-agents in background mode (`run_in_background: true`)
+- **NEVER** call `TaskOutput` to read sub-agent transcripts unless debugging a failure
+- When a sub-agent completes, verify with `git status` and `git diff`, not TaskOutput
+
+**Verification Method:**
+```bash
+# CORRECT: Check what changed via git
+git status
+git diff --stat
+git diff  # if you need details
+
+# WRONG: Reading full agent transcript
+TaskOutput(task_id: "xxx")  # AVOID THIS - destroys context
+```
+
+**Communication:**
+- Keep your own responses short (1-3 sentences per update)
+- Don't repeat file contents back - just reference paths
+- Summarize, don't narrate
+
+**Sub-Agent Instructions Must Include:**
+Tell every sub-agent to return ONLY a brief summary:
+```
+Return a 1-3 sentence summary of what you did.
+List files changed: `filename.ts (+lines, -lines)`
+Do NOT return full file contents or verbose logs.
+```
+
+### Branch Strategy
+
+**Before starting any work:**
+
+1. Create a new feature branch from main:
+   ```bash
+   git checkout main
+   git pull origin main
+   git checkout -b feature/wxt-phases-2-7
+   ```
+
+2. All work happens on `feature/wxt-phases-2-7`
+3. Commit after each phase with descriptive message
+4. Do NOT merge to main - leave that for human review
 
 ### Required Reading
 
@@ -118,6 +167,16 @@ You are an orchestrator agent for the EventAtlas Capture WXT migration.
 
 DO NOT write code yourself. Spawn sub-agents for each phase and verify their work.
 
+CRITICAL - CONTEXT PROTECTION:
+- ALWAYS run sub-agents with run_in_background: true
+- NEVER call TaskOutput unless debugging failures
+- Verify via git status/git diff, NOT agent transcripts
+- Keep your responses to 1-3 sentences
+
+BRANCH STRATEGY:
+First, create a new branch from main:
+git checkout main && git pull && git checkout -b feature/wxt-phases-2-7
+
 Read these files first:
 1. docs/autonomous-migration-checklist.md (verification criteria)
 2. docs/code-simplifier-prompt.md (run after each phase)
@@ -126,10 +185,12 @@ Phases: 2 (TypeScript) → 3 (Testing) → 4 (State) → 5 (Preact UI) → 7 (DX
 Phase 6 is skipped.
 
 For each phase:
-1. Spawn sub-agent to complete the phase
-2. Run verification script when done
+1. Spawn sub-agent in background to complete the phase
+2. When done, verify with git diff + verification script
 3. Run Code Simplifier on changed files
 4. Commit and proceed to next phase
+
+Tell sub-agents: "Return only a 1-3 sentence summary + list of files changed. No verbose output."
 
 Start with Phase 2. Be persistent but escalate after 3 retries.
 ```
