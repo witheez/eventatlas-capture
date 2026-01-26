@@ -5,21 +5,85 @@
  * Manages rendering preview, screenshot modal, image gallery, metadata, and export/copy.
  */
 
-import { formatBytes, getDomain } from './utils.js';
+import { formatBytes, getDomain } from './utils';
+import type { Capture, Bundle } from './storage';
+
+// Type definitions
+interface PageDetailDom {
+  bundlesView: HTMLElement;
+  detailView: HTMLElement;
+  backNav: HTMLElement;
+  backNavText: HTMLElement;
+  includeHtml: HTMLInputElement;
+  includeImages: HTMLInputElement;
+  includeScreenshot: HTMLInputElement;
+  moveBundleSelect: HTMLSelectElement;
+  htmlSizeStat: HTMLElement;
+  textSizeStat: HTMLElement;
+  imageSizeStat: HTMLElement;
+  editTitle: HTMLInputElement;
+  editUrl: HTMLInputElement;
+  screenshotBadge: HTMLElement;
+  screenshotThumb: HTMLImageElement;
+  screenshotPlaceholder: HTMLElement;
+  textPreview: HTMLElement;
+  textCharCount: HTMLElement;
+  textToggle: HTMLElement;
+  imageGallery: HTMLElement;
+  imageSelectedCount: HTMLElement;
+  metadataSection: HTMLElement;
+  metadataList: HTMLElement;
+  screenshotModal: HTMLElement;
+  screenshotModalImg: HTMLImageElement;
+}
+
+interface PageDetailState {
+  getCurrentView: () => string;
+  setCurrentView: (view: string) => void;
+  getCurrentBundle: () => Bundle | null;
+  getCurrentBundleId: () => string | null;
+  getCurrentPageIndex: () => number | null;
+  setCurrentPageIndex: (index: number | null) => void;
+  getBundles: () => Bundle[];
+  getBundleById: (id: string) => Bundle | undefined;
+  getSelectedImages: () => Set<string>;
+  setSelectedImages: (images: Set<string>) => void;
+  getTextExpanded: () => boolean;
+  setTextExpanded: (expanded: boolean) => void;
+}
+
+interface PageDetailCallbacks {
+  saveToStorage: () => Promise<void>;
+  renderBundlesList: () => void;
+  showToast: (message: string, type?: string) => void;
+}
+
+interface ExportData {
+  url?: string;
+  title?: string;
+  text?: string;
+  html?: string;
+  metadata?: Record<string, string>;
+  capturedAt?: string;
+  images?: string[];
+  screenshot?: string;
+}
 
 // Module state
-let dom = {};
-let state = {};
-let callbacks = {};
+let dom: PageDetailDom;
+let state: PageDetailState;
+let callbacks: PageDetailCallbacks;
+
+interface PageDetailConfig {
+  dom: PageDetailDom;
+  state: PageDetailState;
+  callbacks: PageDetailCallbacks;
+}
 
 /**
  * Initialize the page detail module
- * @param {Object} config Configuration object
- * @param {Object} config.dom DOM element references
- * @param {Object} config.state State access functions
- * @param {Object} config.callbacks Callback functions
  */
-export function initPageDetail(config) {
+export function initPageDetail(config: PageDetailConfig): void {
   dom = config.dom;
   state = config.state;
   callbacks = config.callbacks;
@@ -28,7 +92,7 @@ export function initPageDetail(config) {
 /**
  * Clear all children from an element
  */
-function clearChildren(element) {
+function clearChildren(element: HTMLElement): void {
   while (element.firstChild) {
     element.removeChild(element.firstChild);
   }
@@ -37,7 +101,7 @@ function clearChildren(element) {
 /**
  * Switch between views: 'bundles', 'detail'
  */
-export function switchView(view) {
+export function switchView(view: string): void {
   state.setCurrentView(view);
 
   // Hide all views
@@ -58,7 +122,7 @@ export function switchView(view) {
 /**
  * View page detail
  */
-export function viewPageDetail(index) {
+export function viewPageDetail(index: number): void {
   const bundle = state.getCurrentBundle();
   if (!bundle || index < 0 || index >= bundle.pages.length) return;
 
@@ -66,7 +130,7 @@ export function viewPageDetail(index) {
   const capture = bundle.pages[index];
 
   // Restore selected images for this capture
-  const newSelectedImages = new Set(capture.selectedImages || capture.images || []);
+  const newSelectedImages = new Set<string>(capture.selectedImages || capture.images || []);
   state.setSelectedImages(newSelectedImages);
 
   // Restore toggle states
@@ -87,7 +151,7 @@ export function viewPageDetail(index) {
 /**
  * Populate the move-to-bundle dropdown
  */
-export function populateMoveBundleSelect() {
+export function populateMoveBundleSelect(): void {
   clearChildren(dom.moveBundleSelect);
 
   const defaultOption = document.createElement('option');
@@ -112,7 +176,7 @@ export function populateMoveBundleSelect() {
 /**
  * Render detail preview for a capture
  */
-export function renderDetailPreview(capture) {
+export function renderDetailPreview(capture: Capture): void {
   // Stats
   dom.htmlSizeStat.textContent = formatBytes(capture.html?.length || 0);
   dom.textSizeStat.textContent = formatBytes(capture.text?.length || 0);
@@ -144,7 +208,7 @@ export function renderDetailPreview(capture) {
 /**
  * Render screenshot section
  */
-export function renderScreenshot(capture) {
+export function renderScreenshot(capture: Capture): void {
   if (capture.screenshot) {
     // Calculate approximate size of base64 data
     const screenshotSize = Math.round((capture.screenshot.length * 3) / 4); // Base64 to bytes
@@ -163,7 +227,7 @@ export function renderScreenshot(capture) {
 /**
  * Open screenshot modal
  */
-export function openScreenshotModal(screenshotSrc) {
+export function openScreenshotModal(screenshotSrc: string): void {
   dom.screenshotModalImg.src = screenshotSrc;
   dom.screenshotModal.classList.add('visible');
 }
@@ -171,7 +235,7 @@ export function openScreenshotModal(screenshotSrc) {
 /**
  * Close screenshot modal
  */
-export function closeScreenshotModal() {
+export function closeScreenshotModal(): void {
   dom.screenshotModal.classList.remove('visible');
   dom.screenshotModalImg.src = '';
 }
@@ -179,7 +243,7 @@ export function closeScreenshotModal() {
 /**
  * Render image gallery
  */
-export function renderImageGallery(capture) {
+export function renderImageGallery(capture: Capture): void {
   clearChildren(dom.imageGallery);
 
   const images = capture.images || [];
@@ -252,7 +316,7 @@ export function renderImageGallery(capture) {
 /**
  * Update image selected count
  */
-export function updateImageCount(capture) {
+export function updateImageCount(capture: Capture): void {
   const total = capture.images?.length || 0;
   const selected = state.getSelectedImages().size;
   dom.imageSelectedCount.textContent = `${selected}/${total} selected`;
@@ -261,7 +325,7 @@ export function updateImageCount(capture) {
 /**
  * Render metadata section
  */
-export function renderMetadata(capture) {
+export function renderMetadata(capture: Capture): void {
   const metadata = capture.metadata || {};
   const entries = Object.entries(metadata);
 
@@ -295,7 +359,7 @@ export function renderMetadata(capture) {
 /**
  * Save current detail view edits back to bundle
  */
-export function saveCurrentDetail() {
+export function saveCurrentDetail(): void {
   const bundle = state.getCurrentBundle();
   const currentPageIndex = state.getCurrentPageIndex();
   if (!bundle || currentPageIndex === null || currentPageIndex >= bundle.pages.length) return;
@@ -318,8 +382,8 @@ export function saveCurrentDetail() {
 /**
  * Build export data for a single capture
  */
-export function buildExportData(capture) {
-  const exportData = {
+export function buildExportData(capture: Capture): ExportData {
+  const exportData: ExportData = {
     url: capture.editedUrl || capture.url,
     title: capture.editedTitle || capture.title,
     text: capture.text,
@@ -346,7 +410,7 @@ export function buildExportData(capture) {
 /**
  * Copy single capture to clipboard
  */
-export async function copySingleToClipboard() {
+export async function copySingleToClipboard(): Promise<void> {
   const bundle = state.getCurrentBundle();
   const currentPageIndex = state.getCurrentPageIndex();
   if (!bundle || currentPageIndex === null || currentPageIndex >= bundle.pages.length) {
@@ -373,7 +437,7 @@ export async function copySingleToClipboard() {
 /**
  * Copy bundle to clipboard by bundle ID
  */
-export async function copyBundleToClipboard(bundleId) {
+export async function copyBundleToClipboard(bundleId: string): Promise<void> {
   const bundle = state.getBundleById(bundleId);
   if (!bundle || bundle.pages.length === 0) {
     callbacks.showToast('No pages in bundle', 'error');
@@ -395,7 +459,7 @@ export async function copyBundleToClipboard(bundleId) {
 /**
  * Remove page from bundle
  */
-export async function removePageFromBundle(bundleId, index) {
+export async function removePageFromBundle(bundleId: string, index: number): Promise<void> {
   const bundle = state.getBundleById(bundleId);
   if (!bundle || index < 0 || index >= bundle.pages.length) return;
 
@@ -409,7 +473,7 @@ export async function removePageFromBundle(bundleId, index) {
   // If we're viewing the removed item in detail view, go back to bundles
   if (currentView === 'detail' && currentBundleId === bundleId && currentPageIndex === index) {
     switchView('bundles');
-  } else if (currentView === 'detail' && currentBundleId === bundleId && currentPageIndex > index) {
+  } else if (currentView === 'detail' && currentBundleId === bundleId && currentPageIndex !== null && currentPageIndex > index) {
     // Adjust index if we removed something before current view
     state.setCurrentPageIndex(currentPageIndex - 1);
   }
@@ -421,7 +485,7 @@ export async function removePageFromBundle(bundleId, index) {
 /**
  * Remove current page from bundle (from detail view)
  */
-export async function removeCurrentFromBundle() {
+export async function removeCurrentFromBundle(): Promise<void> {
   const currentBundleId = state.getCurrentBundleId();
   const currentPageIndex = state.getCurrentPageIndex();
   if (currentBundleId && currentPageIndex !== null) {

@@ -6,31 +6,91 @@
  * from sidepanel.js.
  */
 
-import { getDomain } from './utils.js';
-import { syncWithApi } from './api.js';
+import { getDomain } from './utils';
+import { syncWithApi } from './api';
+import type { Settings, Bundle, Capture } from './storage';
+
+// Type definitions
+interface CaptureState {
+  bundles: Bundle[];
+  currentBundleId: string | null;
+  currentPageIndex: number | null;
+  pendingCapture: {
+    capture: Capture;
+    bundleId: string;
+    duplicateIndex: number;
+  } | null;
+  availableTags: unknown[];
+  availableEventTypes: unknown[];
+  availableDistances: unknown[];
+  currentMatchedEvent: { id: number; media?: unknown[] } | null;
+}
+
+interface CaptureElements {
+  captureBtn: HTMLButtonElement;
+  captureBtnGroup: HTMLElement;
+  captureNoScreenshotBtn: HTMLButtonElement;
+  captureWithScreenshotBtn: HTMLButtonElement;
+  addScreenshotBtn: HTMLButtonElement;
+  refreshBtn: HTMLElement;
+}
+
+interface CaptureDependencies {
+  elements: CaptureElements;
+  getSettings: () => Settings;
+  getState: () => CaptureState;
+  setState: (updates: Partial<CaptureState>) => void;
+  getBundleById: (id: string) => Bundle | undefined;
+  getCurrentBundle: () => Bundle | null;
+  createBundle: (name?: string) => Bundle | null;
+  addCaptureToBundle: (bundleId: string, capture: Capture, replaceIndex?: number) => Promise<boolean>;
+  findDuplicateInBundle: (bundleId: string, url: string) => number;
+  findBundleForDomain: (domain: string) => Bundle | undefined;
+  showToast: (message: string, type?: string) => void;
+  showErrorMessage: (title: string, message: string) => void;
+  hideErrorMessage: () => void;
+  showDuplicateDialog: (existingTitle: string) => void;
+  hideDuplicateDialog: () => void;
+  renderBundlesList: () => void;
+  renderScreenshot: (capture: Capture) => void;
+  switchView: (view: string) => void;
+  saveToStorage: () => Promise<void>;
+  updateUrlStatus: () => Promise<void>;
+  loadEditorOptions: () => Promise<void>;
+  renderTagsChips: () => void;
+  renderDistanceButtons: () => void;
+  renderSelectedDistances: () => void;
+}
+
+interface CaptureAPI {
+  isConnectionError: (error: unknown) => boolean;
+  captureScreenshot: (windowId: number) => Promise<string | null>;
+  updateCaptureButtonsVisibility: () => void;
+  setCaptureButtonsState: (disabled: boolean, text: string) => void;
+  setCaptureButtonsClass: (className: string, add: boolean) => void;
+  capturePage: (includeScreenshot?: boolean) => Promise<void>;
+  addScreenshotToCurrentCapture: () => Promise<void>;
+  handleDuplicateReplace: () => Promise<void>;
+  handleDuplicateSkip: () => void;
+  movePageToBundle: (targetBundleId: string) => Promise<void>;
+  refreshPageData: () => Promise<void>;
+}
 
 /**
  * Initialize the capture module with dependencies
- * @param {Object} deps - Dependencies from sidepanel.js
- * @returns {Object} Public API for capture module
  */
-export function initCapture(deps) {
+export function initCapture(deps: CaptureDependencies): CaptureAPI {
   const {
-    // DOM elements
     elements,
-    // Settings getter
     getSettings,
-    // State getters/setters
     getState,
     setState,
-    // Bundle functions
     getBundleById,
     getCurrentBundle,
     createBundle,
     addCaptureToBundle,
     findDuplicateInBundle,
     findBundleForDomain,
-    // UI functions
     showToast,
     showErrorMessage,
     hideErrorMessage,
@@ -39,9 +99,7 @@ export function initCapture(deps) {
     renderBundlesList,
     renderScreenshot,
     switchView,
-    // Storage
     saveToStorage,
-    // Editor functions
     updateUrlStatus,
     loadEditorOptions,
     renderTagsChips,
@@ -49,7 +107,6 @@ export function initCapture(deps) {
     renderSelectedDistances,
   } = deps;
 
-  // Extract DOM elements for convenience
   const {
     captureBtn,
     captureBtnGroup,
@@ -63,11 +120,8 @@ export function initCapture(deps) {
   // Error Detection
   // ============================================================
 
-  /**
-   * Check if an error is a connection error
-   */
-  function isConnectionError(error) {
-    const errorMessage = error?.message || String(error);
+  function isConnectionError(error: unknown): boolean {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return (
       errorMessage.includes('Could not establish connection') ||
       errorMessage.includes('Receiving end does not exist') ||
@@ -81,22 +135,19 @@ export function initCapture(deps) {
   // Screenshot Capture
   // ============================================================
 
-  /**
-   * Capture screenshot via background service worker
-   */
-  async function captureScreenshot(windowId) {
+  async function captureScreenshot(windowId: number): Promise<string | null> {
     try {
       const response = await chrome.runtime.sendMessage({
         action: 'captureScreenshot',
         windowId: windowId,
-      });
+      }) as { error?: string; screenshot?: string };
 
       if (response.error) {
         console.warn('[EventAtlas Capture] Screenshot capture failed:', response.error);
         return null;
       }
 
-      return response.screenshot;
+      return response.screenshot || null;
     } catch (error) {
       console.warn('[EventAtlas Capture] Screenshot capture failed:', error);
       return null;
@@ -107,46 +158,32 @@ export function initCapture(deps) {
   // Button State Management
   // ============================================================
 
-  /**
-   * Update capture buttons visibility based on screenshot default setting
-   */
-  function updateCaptureButtonsVisibility() {
+  function updateCaptureButtonsVisibility(): void {
     const settings = getSettings();
     if (settings.captureScreenshotByDefault) {
-      // Show single button (captures with screenshot)
       captureBtn.style.display = 'block';
       captureBtnGroup.style.display = 'none';
     } else {
-      // Show two buttons (capture without/with screenshot)
       captureBtn.style.display = 'none';
       captureBtnGroup.style.display = 'flex';
     }
   }
 
-  /**
-   * Set capture buttons state (disabled/enabled and text)
-   */
-  function setCaptureButtonsState(disabled, text) {
-    // Single button (screenshot default ON)
+  function setCaptureButtonsState(disabled: boolean, text: string): void {
     captureBtn.disabled = disabled;
     captureBtn.textContent = text;
 
-    // Dual buttons (screenshot default OFF)
     captureNoScreenshotBtn.disabled = disabled;
     captureWithScreenshotBtn.disabled = disabled;
 
     if (text !== 'Capture Page') {
-      // Update button text for both modes
       captureNoScreenshotBtn.innerHTML = `<span class="capture-btn-icon">&#128196;</span> ${text}`;
     } else {
       captureNoScreenshotBtn.innerHTML = '<span class="capture-btn-icon">&#128196;</span> Capture Page';
     }
   }
 
-  /**
-   * Add/remove class from all capture buttons
-   */
-  function setCaptureButtonsClass(className, add) {
+  function setCaptureButtonsClass(className: string, add: boolean): void {
     if (add) {
       captureBtn.classList.add(className);
       captureNoScreenshotBtn.classList.add(className);
@@ -162,11 +199,7 @@ export function initCapture(deps) {
   // Page Capture
   // ============================================================
 
-  /**
-   * Capture page content
-   * @param {boolean} includeScreenshot - Whether to capture a screenshot
-   */
-  async function capturePage(includeScreenshot = true) {
+  async function capturePage(includeScreenshot = true): Promise<void> {
     const state = getState();
     const settings = getSettings();
 
@@ -181,16 +214,13 @@ export function initCapture(deps) {
         throw new Error('No active tab found');
       }
 
-      // Check if we can capture this page
       if (tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://')) {
         throw new Error('Cannot capture Chrome system pages');
       }
 
-      // Send message to content script for page content
-      const response = await chrome.tabs.sendMessage(tab.id, { action: 'capture' });
+      const response = await chrome.tabs.sendMessage(tab.id, { action: 'capture' }) as Capture & { error?: string };
 
-      // Capture screenshot if requested
-      if (includeScreenshot) {
+      if (includeScreenshot && tab.windowId) {
         const screenshot = await captureScreenshot(tab.windowId);
         if (screenshot) {
           response.screenshot = screenshot;
@@ -201,17 +231,14 @@ export function initCapture(deps) {
         throw new Error(response.error);
       }
 
-      // Determine target bundle based on auto-group setting
       const domain = getDomain(response.url);
-      let targetBundle = null;
+      let targetBundle: Bundle | null = null;
 
       if (settings.autoGroupByDomain) {
-        // Try to find existing bundle for this domain
-        targetBundle = findBundleForDomain(domain);
+        targetBundle = findBundleForDomain(domain) || null;
       }
 
       if (!targetBundle) {
-        // Create new bundle
         const bundles = state.bundles;
         const bundleName = settings.autoGroupByDomain ? domain : `Bundle ${bundles.length + 1}`;
         targetBundle = createBundle(bundleName);
@@ -221,11 +248,9 @@ export function initCapture(deps) {
         }
       }
 
-      // Check for duplicate URL in target bundle
       const duplicateIndex = findDuplicateInBundle(targetBundle.id, response.url);
 
       if (duplicateIndex >= 0) {
-        // Show duplicate dialog
         const existingPage = targetBundle.pages[duplicateIndex];
         setState({
           pendingCapture: {
@@ -240,7 +265,6 @@ export function initCapture(deps) {
         return;
       }
 
-      // Add to bundle
       const success = await addCaptureToBundle(targetBundle.id, response);
 
       if (success) {
@@ -267,7 +291,7 @@ export function initCapture(deps) {
         );
         showToast('Refresh the page first', 'error');
       } else {
-        showToast(err.message, 'error');
+        showToast(err instanceof Error ? err.message : 'Capture failed', 'error');
       }
 
       setCaptureButtonsState(true, 'Retry');
@@ -280,10 +304,7 @@ export function initCapture(deps) {
     }
   }
 
-  /**
-   * Add screenshot to the current capture in detail view
-   */
-  async function addScreenshotToCurrentCapture() {
+  async function addScreenshotToCurrentCapture(): Promise<void> {
     const bundle = getCurrentBundle();
     const state = getState();
 
@@ -294,13 +315,11 @@ export function initCapture(deps) {
 
     const capture = bundle.pages[state.currentPageIndex];
 
-    // Already has screenshot
     if (capture.screenshot) {
       showToast('Screenshot already exists', 'error');
       return;
     }
 
-    // Disable button while capturing
     addScreenshotBtn.disabled = true;
     addScreenshotBtn.innerHTML = '<span class="capture-btn-icon">&#128248;</span> Capturing...';
 
@@ -317,17 +336,15 @@ export function initCapture(deps) {
         throw new Error('Failed to capture screenshot');
       }
 
-      // Add screenshot to capture
       capture.screenshot = screenshot;
       await saveToStorage();
 
-      // Update the detail view
       renderScreenshot(capture);
 
       showToast('Screenshot added', 'success');
     } catch (err) {
       console.error('Add screenshot error:', err);
-      showToast(err.message || 'Failed to add screenshot', 'error');
+      showToast((err instanceof Error ? err.message : null) || 'Failed to add screenshot', 'error');
     } finally {
       addScreenshotBtn.disabled = false;
       addScreenshotBtn.innerHTML = '<span class="capture-btn-icon">&#128248;</span> Add Screenshot';
@@ -338,10 +355,7 @@ export function initCapture(deps) {
   // Duplicate Handling
   // ============================================================
 
-  /**
-   * Handle duplicate replace
-   */
-  async function handleDuplicateReplace() {
+  async function handleDuplicateReplace(): Promise<void> {
     const state = getState();
     const pendingCapture = state.pendingCapture;
     if (!pendingCapture) return;
@@ -357,10 +371,7 @@ export function initCapture(deps) {
     setState({ pendingCapture: null });
   }
 
-  /**
-   * Handle duplicate skip
-   */
-  function handleDuplicateSkip() {
+  function handleDuplicateSkip(): void {
     hideDuplicateDialog();
     showToast('Page skipped (already in bundle)', 'success');
     setState({ pendingCapture: null });
@@ -370,10 +381,7 @@ export function initCapture(deps) {
   // Page Movement
   // ============================================================
 
-  /**
-   * Move page to another bundle (from detail view dropdown)
-   */
-  async function movePageToBundle(targetBundleId) {
+  async function movePageToBundle(targetBundleId: string): Promise<void> {
     const state = getState();
     if (!targetBundleId || !state.currentBundleId || state.currentPageIndex === null) return;
 
@@ -381,23 +389,19 @@ export function initCapture(deps) {
     const targetBundle = getBundleById(targetBundleId);
     if (!sourceBundle || !targetBundle) return;
 
-    // Check target bundle limit (use constant from main module)
     const MAX_BUNDLE_PAGES = 20;
     if (targetBundle.pages.length >= MAX_BUNDLE_PAGES) {
       showToast(`Target bundle is full (${MAX_BUNDLE_PAGES} pages max)`, 'error');
       return;
     }
 
-    // Remove from source and add to target
     const page = sourceBundle.pages.splice(state.currentPageIndex, 1)[0];
     targetBundle.pages.push(page);
 
-    // Expand target bundle
     targetBundle.expanded = true;
 
     await saveToStorage();
 
-    // Go back to bundles view
     switchView('bundles');
     renderBundlesList();
 
@@ -408,24 +412,19 @@ export function initCapture(deps) {
   // Page Data Refresh
   // ============================================================
 
-  /**
-   * Refresh page data - reload lookup, tags, event types, and distances from API
-   */
-  async function refreshPageData() {
-    if (refreshBtn.classList.contains('loading')) return; // Prevent double-click
+  async function refreshPageData(): Promise<void> {
+    if (refreshBtn.classList.contains('loading')) return;
 
     refreshBtn.classList.add('loading');
     const settings = getSettings();
 
     try {
-      // Clear cached editor options to force reload
       setState({
         availableTags: [],
         availableEventTypes: [],
         availableDistances: [],
       });
 
-      // Sync with API (refresh local cache)
       const syncResult = await syncWithApi(settings);
       if (syncResult) {
         console.log('[EventAtlas] Refresh - Sync completed:', {
@@ -434,14 +433,11 @@ export function initCapture(deps) {
         });
       }
 
-      // Update URL status (will call lookup API and potentially show event editor)
       await updateUrlStatus();
 
-      // If we have an event editor visible, reload its options
       const state = getState();
       if (state.currentMatchedEvent) {
         await loadEditorOptions();
-        // Re-render editor with fresh data
         renderTagsChips();
         renderDistanceButtons();
         renderSelectedDistances();
@@ -461,29 +457,16 @@ export function initCapture(deps) {
   // ============================================================
 
   return {
-    // Error detection
     isConnectionError,
-
-    // Screenshot
     captureScreenshot,
-
-    // Button state
     updateCaptureButtonsVisibility,
     setCaptureButtonsState,
     setCaptureButtonsClass,
-
-    // Capture actions
     capturePage,
     addScreenshotToCurrentCapture,
-
-    // Duplicate handling
     handleDuplicateReplace,
     handleDuplicateSkip,
-
-    // Page movement
     movePageToBundle,
-
-    // Refresh
     refreshPageData,
   };
 }

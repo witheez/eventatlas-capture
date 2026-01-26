@@ -6,14 +6,14 @@
 /**
  * Domains that require www. prefix due to redirect issues
  */
-const DOMAINS_REQUIRING_WWW = ['heyjom.com'];
+const DOMAINS_REQUIRING_WWW: string[] = ['heyjom.com'];
 
 /**
  * Fix URL for navigation/display - adds www. where required
- * @param {string} url - URL to fix
- * @returns {string} Fixed URL
+ * @param url - URL to fix
+ * @returns Fixed URL
  */
-export function fixUrl(url) {
+export function fixUrl(url: string): string {
   if (!url) return url;
 
   try {
@@ -34,27 +34,27 @@ export function fixUrl(url) {
 
 /**
  * Normalize URL for comparison (strips protocol, www, query params, fragment, trailing slash)
- * @param {string} url - URL to normalize
- * @returns {string} Normalized URL (hostname + path)
+ * @param url - URL to normalize
+ * @returns Normalized URL (hostname + path)
  */
-export function normalizeUrl(url) {
+export function normalizeUrl(url: string): string {
   try {
     const parsed = new URL(url);
     // Strip www. for normalization - comparison doesn't care about www
     let normalized = parsed.hostname.toLowerCase().replace(/^www\./, '');
     normalized += parsed.pathname.replace(/\/$/, '');
     return normalized;
-  } catch (e) {
+  } catch {
     return url.toLowerCase();
   }
 }
 
 /**
  * Extract domain from URL
- * @param {string} url - Full URL
- * @returns {string} Domain/hostname
+ * @param url - Full URL
+ * @returns Domain/hostname
  */
-export function getDomain(url) {
+export function getDomain(url: string): string {
   try {
     return new URL(url).hostname;
   } catch {

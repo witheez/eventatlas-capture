@@ -5,6 +5,21 @@
  * Responds to messages from the popup to capture page content.
  */
 
+interface PageMetadata {
+  [key: string]: string;
+}
+
+interface CapturedContent {
+  url: string;
+  title: string;
+  html: string;
+  text: string;
+  images: string[];
+  metadata: PageMetadata;
+  capturedAt: string;
+  error?: string;
+}
+
 export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_idle',
@@ -12,10 +27,9 @@ export default defineContentScript({
   main() {
     /**
      * Extract all image URLs from the page
-     * @returns {string[]} Array of absolute image URLs
      */
-    function extractImageUrls() {
-      const images = new Set();
+    function extractImageUrls(): string[] {
+      const images = new Set<string>();
 
       // Get all <img> elements
       document.querySelectorAll('img').forEach(img => {
@@ -29,7 +43,7 @@ export default defineContentScript({
             if (url && !url.startsWith('data:')) {
               try {
                 images.add(new URL(url, window.location.href).href);
-              } catch (e) {
+              } catch {
                 // Invalid URL, skip
               }
             }
@@ -44,7 +58,7 @@ export default defineContentScript({
         if (match && match[1] && !match[1].startsWith('data:')) {
           try {
             images.add(new URL(match[1], window.location.href).href);
-          } catch (e) {
+          } catch {
             // Invalid URL, skip
           }
         }
@@ -52,16 +66,19 @@ export default defineContentScript({
 
       // Get images from picture/source elements
       document.querySelectorAll('source[srcset]').forEach(source => {
-        source.srcset.split(',').forEach(src => {
-          const url = src.trim().split(' ')[0];
-          if (url && !url.startsWith('data:')) {
-            try {
-              images.add(new URL(url, window.location.href).href);
-            } catch (e) {
-              // Invalid URL, skip
+        const srcset = source.getAttribute('srcset');
+        if (srcset) {
+          srcset.split(',').forEach(src => {
+            const url = src.trim().split(' ')[0];
+            if (url && !url.startsWith('data:')) {
+              try {
+                images.add(new URL(url, window.location.href).href);
+              } catch {
+                // Invalid URL, skip
+              }
             }
-          }
-        });
+          });
+        }
       });
 
       // Get Open Graph and Twitter card images
@@ -70,7 +87,7 @@ export default defineContentScript({
         if (content) {
           try {
             images.add(new URL(content, window.location.href).href);
-          } catch (e) {
+          } catch {
             // Invalid URL, skip
           }
         }
@@ -81,10 +98,9 @@ export default defineContentScript({
 
     /**
      * Extract structured metadata from the page
-     * @returns {object} Metadata object
      */
-    function extractMetadata() {
-      const meta = {};
+    function extractMetadata(): PageMetadata {
+      const meta: PageMetadata = {};
 
       // Open Graph
       document.querySelectorAll('meta[property^="og:"]').forEach(el => {
@@ -118,9 +134,8 @@ export default defineContentScript({
 
     /**
      * Capture all page content
-     * @returns {object} Captured content data
      */
-    function capturePageContent() {
+    function capturePageContent(): CapturedContent {
       const capturedAt = new Date().toISOString();
 
       return {
@@ -141,7 +156,7 @@ export default defineContentScript({
           const data = capturePageContent();
           sendResponse(data);
         } catch (error) {
-          sendResponse({ error: error.message });
+          sendResponse({ error: error instanceof Error ? error.message : 'Unknown error' });
         }
       }
       return true; // Keep channel open for async response

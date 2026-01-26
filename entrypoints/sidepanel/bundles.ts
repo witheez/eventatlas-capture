@@ -5,16 +5,66 @@
  * Uses a factory pattern to receive dependencies from sidepanel.js.
  */
 
-import { generateId, getDomain } from './utils.js';
+import { generateId, getDomain } from './utils';
+import type { Bundle, Capture } from './storage';
+
+// Type definitions
+interface DraggedPage {
+  bundleId: string;
+  pageIndex: number;
+}
+
+interface BundleElements {
+  bundlesList: HTMLElement;
+  bundlesCount: HTMLElement;
+  captureBadge: HTMLElement;
+}
+
+interface BundlesDependencies {
+  getBundles: () => Bundle[];
+  setBundles: (bundles: Bundle[]) => void;
+  getCurrentBundleId: () => string | null;
+  setCurrentBundleId: (id: string | null) => void;
+  getCurrentPageIndex: () => number | null;
+  setCurrentPageIndex: (index: number | null) => void;
+  getCurrentView: () => string;
+  getDraggedPage: () => DraggedPage | null;
+  setDraggedPage: (page: DraggedPage | null) => void;
+  MAX_BUNDLES: number;
+  MAX_BUNDLE_PAGES: number;
+  elements: BundleElements;
+  saveToStorage: () => Promise<void>;
+  showToast: (message: string, type?: string) => void;
+  switchView: (view: string) => void;
+  viewPageDetail: (index: number) => void;
+  copyBundleToClipboard?: (bundleId: string) => Promise<void>;
+  removePageFromBundle?: (bundleId: string, index: number) => Promise<void>;
+}
+
+interface BundlesAPI {
+  getBundleById: (id: string) => Bundle | undefined;
+  getCurrentBundle: () => Bundle | null;
+  findBundleForDomain: (domain: string) => Bundle | undefined;
+  findDuplicateInBundle: (bundleId: string, url: string) => number;
+  createBundle: (name?: string) => Bundle | null;
+  deleteBundle: (bundleId: string) => Promise<void>;
+  clearAllBundles: () => Promise<void>;
+  addCaptureToBundle: (bundleId: string, capture: Capture, replaceIndex?: number) => Promise<boolean>;
+  toggleBundleExpanded: (bundleId: string) => void;
+  updateBadge: () => void;
+  clearChildren: (element: HTMLElement) => void;
+  renderBundlesList: () => void;
+  createAccordionBundle: (bundle: Bundle) => HTMLElement;
+  createAccordionPageItem: (bundleId: string, capture: Capture, index: number) => HTMLElement;
+  setupBundleDropZone: (bundleElement: HTMLElement, bundleId: string) => void;
+  movePageBetweenBundles: (sourceBundleId: string, pageIndex: number, targetBundleId: string) => Promise<void>;
+}
 
 /**
  * Initialize the bundles module with dependencies
- * @param {Object} deps - Dependencies from sidepanel.js
- * @returns {Object} Public API for bundle management
  */
-export function initBundles(deps) {
+export function initBundles(deps: BundlesDependencies): BundlesAPI {
   const {
-    // State getters/setters
     getBundles,
     setBundles,
     getCurrentBundleId,
@@ -24,12 +74,9 @@ export function initBundles(deps) {
     getCurrentView,
     getDraggedPage,
     setDraggedPage,
-    // Constants
     MAX_BUNDLES,
     MAX_BUNDLE_PAGES,
-    // DOM elements
     elements,
-    // Helper functions
     saveToStorage,
     showToast,
     switchView,
@@ -50,29 +97,29 @@ export function initBundles(deps) {
   /**
    * Get bundle by ID
    */
-  function getBundleById(id) {
+  function getBundleById(id: string): Bundle | undefined {
     return getBundles().find((b) => b.id === id);
   }
 
   /**
    * Get current bundle
    */
-  function getCurrentBundle() {
+  function getCurrentBundle(): Bundle | null {
     const currentBundleId = getCurrentBundleId();
-    return currentBundleId ? getBundleById(currentBundleId) : null;
+    return currentBundleId ? getBundleById(currentBundleId) || null : null;
   }
 
   /**
    * Find bundle for domain (for auto-grouping)
    */
-  function findBundleForDomain(domain) {
+  function findBundleForDomain(domain: string): Bundle | undefined {
     return getBundles().find((b) => b.name === domain);
   }
 
   /**
    * Find duplicate URL in a specific bundle
    */
-  function findDuplicateInBundle(bundleId, url) {
+  function findDuplicateInBundle(bundleId: string, url: string): number {
     const bundle = getBundleById(bundleId);
     if (!bundle) return -1;
 
@@ -89,14 +136,14 @@ export function initBundles(deps) {
   /**
    * Create a new bundle
    */
-  function createBundle(name) {
+  function createBundle(name?: string): Bundle | null {
     const bundles = getBundles();
     if (bundles.length >= MAX_BUNDLES) {
       showToast(`Bundle limit reached (${MAX_BUNDLES} max)`, 'error');
       return null;
     }
 
-    const newBundle = {
+    const newBundle: Bundle = {
       id: generateId(),
       name: name || `Bundle ${bundles.length + 1}`,
       pages: [],
@@ -112,7 +159,7 @@ export function initBundles(deps) {
   /**
    * Delete an entire bundle
    */
-  async function deleteBundle(bundleId) {
+  async function deleteBundle(bundleId: string): Promise<void> {
     const bundles = getBundles();
     const index = bundles.findIndex((b) => b.id === bundleId);
     if (index === -1) return;
@@ -133,7 +180,7 @@ export function initBundles(deps) {
   /**
    * Clear all bundles
    */
-  async function clearAllBundles() {
+  async function clearAllBundles(): Promise<void> {
     const bundles = getBundles();
     if (bundles.length === 0) {
       showToast('No bundles to clear', 'error');
@@ -151,12 +198,12 @@ export function initBundles(deps) {
   /**
    * Add capture to a specific bundle
    */
-  async function addCaptureToBundle(bundleId, capture, replaceIndex = -1) {
+  async function addCaptureToBundle(bundleId: string, capture: Capture, replaceIndex = -1): Promise<boolean> {
     const bundle = getBundleById(bundleId);
     if (!bundle) return false;
 
     // Prepare capture data
-    const captureData = {
+    const captureData: Capture = {
       ...capture,
       selectedImages: capture.images || [],
       includeHtml: true,
@@ -191,7 +238,7 @@ export function initBundles(deps) {
   /**
    * Toggle bundle accordion
    */
-  function toggleBundleExpanded(bundleId) {
+  function toggleBundleExpanded(bundleId: string): void {
     const bundle = getBundleById(bundleId);
     if (bundle) {
       bundle.expanded = !bundle.expanded;
@@ -207,7 +254,7 @@ export function initBundles(deps) {
   /**
    * Update header badge - total pages across all bundles
    */
-  function updateBadge() {
+  function updateBadge(): void {
     const bundles = getBundles();
     const totalPages = bundles.reduce((sum, b) => sum + (b.pages?.length || 0), 0);
     if (totalPages === 0) {
@@ -222,7 +269,7 @@ export function initBundles(deps) {
   /**
    * Clear all children from an element
    */
-  function clearChildren(element) {
+  function clearChildren(element: HTMLElement): void {
     while (element.firstChild) {
       element.removeChild(element.firstChild);
     }
@@ -235,7 +282,7 @@ export function initBundles(deps) {
   /**
    * Render the bundles list with accordion (Main View)
    */
-  function renderBundlesList() {
+  function renderBundlesList(): void {
     clearChildren(bundlesList);
     updateBadge();
 
@@ -260,7 +307,7 @@ export function initBundles(deps) {
   /**
    * Create an accordion bundle element
    */
-  function createAccordionBundle(bundle) {
+  function createAccordionBundle(bundle: Bundle): HTMLElement {
     const wrapper = document.createElement('div');
     wrapper.className = 'accordion-bundle' + (bundle.expanded ? ' expanded' : '');
     wrapper.dataset.bundleId = bundle.id;
@@ -306,7 +353,6 @@ export function initBundles(deps) {
     copyBundleBtn.title = 'Copy bundle to clipboard';
     copyBundleBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      // copyBundleToClipboard is provided via deps or called externally
       if (deps.copyBundleToClipboard) {
         deps.copyBundleToClipboard(bundle.id);
       }
@@ -369,12 +415,12 @@ export function initBundles(deps) {
   /**
    * Create a page item within an accordion bundle
    */
-  function createAccordionPageItem(bundleId, capture, index) {
+  function createAccordionPageItem(bundleId: string, capture: Capture, index: number): HTMLElement {
     const item = document.createElement('div');
     item.className = 'accordion-page';
     item.draggable = true;
     item.dataset.bundleId = bundleId;
-    item.dataset.pageIndex = index;
+    item.dataset.pageIndex = String(index);
 
     // Drag handle
     const dragHandle = document.createElement('span');
@@ -427,7 +473,7 @@ export function initBundles(deps) {
 
     // Click to view details
     item.addEventListener('click', (e) => {
-      if (e.target.closest('.accordion-page-remove') || e.target.closest('.accordion-page-drag')) {
+      if ((e.target as HTMLElement).closest('.accordion-page-remove') || (e.target as HTMLElement).closest('.accordion-page-drag')) {
         return;
       }
       setCurrentBundleId(bundleId);
@@ -438,8 +484,10 @@ export function initBundles(deps) {
     item.addEventListener('dragstart', (e) => {
       setDraggedPage({ bundleId, pageIndex: index });
       item.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', JSON.stringify({ bundleId, pageIndex: index }));
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', JSON.stringify({ bundleId, pageIndex: index }));
+      }
     });
 
     item.addEventListener('dragend', () => {
@@ -462,19 +510,21 @@ export function initBundles(deps) {
   /**
    * Setup drag and drop zone for a bundle
    */
-  function setupBundleDropZone(bundleElement, bundleId) {
+  function setupBundleDropZone(bundleElement: HTMLElement, bundleId: string): void {
     bundleElement.addEventListener('dragover', (e) => {
       e.preventDefault();
       const draggedPage = getDraggedPage();
       if (draggedPage && draggedPage.bundleId !== bundleId) {
         bundleElement.classList.add('drag-over');
-        e.dataTransfer.dropEffect = 'move';
+        if (e.dataTransfer) {
+          e.dataTransfer.dropEffect = 'move';
+        }
       }
     });
 
     bundleElement.addEventListener('dragleave', (e) => {
       // Only remove if we're actually leaving the bundle element
-      if (!bundleElement.contains(e.relatedTarget)) {
+      if (!bundleElement.contains(e.relatedTarget as Node)) {
         bundleElement.classList.remove('drag-over');
       }
     });
@@ -498,7 +548,7 @@ export function initBundles(deps) {
   /**
    * Move a page from one bundle to another
    */
-  async function movePageBetweenBundles(sourceBundleId, pageIndex, targetBundleId) {
+  async function movePageBetweenBundles(sourceBundleId: string, pageIndex: number, targetBundleId: string): Promise<void> {
     const sourceBundle = getBundleById(sourceBundleId);
     const targetBundle = getBundleById(targetBundleId);
 

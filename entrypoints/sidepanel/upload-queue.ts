@@ -5,36 +5,67 @@
  * Handles queuing, uploading via XMLHttpRequest, progress updates, retries, and cleanup.
  */
 
-import { generateId } from './utils.js';
+import { generateId } from './utils';
+import type { Settings } from './storage';
+
+// Type definitions
+export interface QueueItem {
+  id: string;
+  eventId: number;
+  eventName: string;
+  imageData: string;
+  thumbnail: string;
+  filename: string;
+  status: 'uploading' | 'complete' | 'failed';
+  progress: number;
+  error?: string;
+  mediaAsset?: MediaAsset | null;
+  completedAt?: number;
+}
+
+export interface MediaAsset {
+  id: number;
+  type: string;
+  file_url: string;
+  thumbnail_url?: string;
+  name?: string;
+}
+
+export interface MatchedEvent {
+  id: number;
+  media?: MediaAsset[];
+}
 
 // Internal queue state
-let uploadQueue = [];
+let uploadQueue: QueueItem[] = [];
 
 // DOM element references (set via init)
-let uploadQueueEl = null;
-let uploadQueueCountEl = null;
-let uploadQueueItemsEl = null;
+let uploadQueueEl: HTMLElement | null = null;
+let uploadQueueCountEl: HTMLElement | null = null;
+let uploadQueueItemsEl: HTMLElement | null = null;
 
 // External callbacks (set via init)
-let getSettings = null;
-let getCurrentMatchedEvent = null;
-let setCurrentMatchedEventMedia = null;
-let renderSavedScreenshots = null;
-let showToast = null;
+let getSettings: (() => Settings) | null = null;
+let getCurrentMatchedEvent: (() => MatchedEvent | null) | null = null;
+let setCurrentMatchedEventMedia: ((media: MediaAsset[]) => void) | null = null;
+let renderSavedScreenshots: ((media: MediaAsset[]) => void) | null = null;
+let showToast: ((message: string, type?: string) => void) | null = null;
+
+interface UploadQueueConfig {
+  queueEl: HTMLElement;
+  countEl: HTMLElement;
+  itemsEl: HTMLElement;
+  getSettings: () => Settings;
+  getCurrentMatchedEvent: () => MatchedEvent | null;
+  setCurrentMatchedEventMedia: (media: MediaAsset[]) => void;
+  renderSavedScreenshots: (media: MediaAsset[]) => void;
+  showToast: (message: string, type?: string) => void;
+}
 
 /**
  * Initialize the upload queue module with DOM elements and callbacks
- * @param {Object} config - Configuration object
- * @param {HTMLElement} config.queueEl - The upload queue container element
- * @param {HTMLElement} config.countEl - The queue count badge element
- * @param {HTMLElement} config.itemsEl - The queue items container element
- * @param {Function} config.getSettings - Getter for settings (returns { apiUrl, apiToken })
- * @param {Function} config.getCurrentMatchedEvent - Getter for current matched event
- * @param {Function} config.setCurrentMatchedEventMedia - Setter for current event media array
- * @param {Function} config.renderSavedScreenshots - Function to render screenshots grid
- * @param {Function} config.showToast - Function to show toast notifications
  */
-export function initUploadQueue(config) {
+export function initUploadQueue(config: UploadQueueConfig): void {
   uploadQueueEl = config.queueEl;
   uploadQueueCountEl = config.countEl;
   uploadQueueItemsEl = config.itemsEl;
@@ -47,20 +78,16 @@ export function initUploadQueue(config) {
 
 /**
  * Get the current upload queue
- * @returns {Array} The upload queue array
  */
-export function getUploadQueue() {
+export function getUploadQueue(): QueueItem[] {
   return uploadQueue;
 }
 
 /**
  * Generate a small thumbnail from base64 image data
  * Returns a scaled-down version for the queue display
- * @param {string} imageData - Base64 image data
- * @param {number} maxSize - Maximum dimension (default 96)
- * @returns {Promise<string>} Base64 thumbnail data
  */
-export function generateThumbnail(imageData, maxSize = 96) {
+export function generateThumbnail(imageData: string, maxSize = 96): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -69,7 +96,9 @@ export function generateThumbnail(imageData, maxSize = 96) {
       canvas.width = img.width * scale;
       canvas.height = img.height * scale;
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      }
       resolve(canvas.toDataURL('image/jpeg', 0.7));
     };
     img.onerror = () => {
@@ -81,17 +110,12 @@ export function generateThumbnail(imageData, maxSize = 96) {
 
 /**
  * Add item to upload queue and start upload
- * @param {number} eventId - The event ID
- * @param {string} eventName - The event name for display
- * @param {string} imageData - Base64 image data
- * @param {string} filename - The filename
- * @returns {Promise<Object>} The queue item
  */
-export async function addToUploadQueue(eventId, eventName, imageData, filename) {
+export async function addToUploadQueue(eventId: number, eventName: string, imageData: string, filename: string): Promise<QueueItem> {
   const id = generateId();
   const thumbnail = await generateThumbnail(imageData);
 
-  const queueItem = {
+  const queueItem: QueueItem = {
     id,
     eventId,
     eventName,
@@ -119,13 +143,14 @@ export async function addToUploadQueue(eventId, eventName, imageData, filename) 
 
 /**
  * Upload a queue item with progress tracking using XMLHttpRequest
- * @param {Object} queueItem - The queue item to upload
  */
-export function uploadQueueItem(queueItem) {
-  const settings = getSettings?.() || {};
+export function uploadQueueItem(queueItem: QueueItem): void {
+  const settings = getSettings?.();
+  if (!settings) return;
+
   const xhr = new XMLHttpRequest();
 
-  xhr.upload.addEventListener('progress', (e) => {
+  xhr.upload.addEventListener('progress', (e: ProgressEvent) => {
     if (e.lengthComputable) {
       const progress = Math.round((e.loaded / e.total) * 100);
       updateQueueItemProgress(queueItem.id, progress);
@@ -135,15 +160,15 @@ export function uploadQueueItem(queueItem) {
   xhr.addEventListener('load', () => {
     if (xhr.status >= 200 && xhr.status < 300) {
       try {
-        const data = JSON.parse(xhr.responseText);
-        markQueueItemComplete(queueItem.id, data.media_asset);
+        const data = JSON.parse(xhr.responseText) as { media_asset?: MediaAsset };
+        markQueueItemComplete(queueItem.id, data.media_asset || null);
       } catch {
         markQueueItemComplete(queueItem.id, null);
       }
     } else {
       let errorMessage = 'Upload failed';
       try {
-        const errorData = JSON.parse(xhr.responseText);
+        const errorData = JSON.parse(xhr.responseText) as { message?: string };
         errorMessage = errorData.message || errorMessage;
       } catch {
         // Ignore parse errors
@@ -174,10 +199,8 @@ export function uploadQueueItem(queueItem) {
 
 /**
  * Update progress for a queue item
- * @param {string} id - The queue item ID
- * @param {number} progress - Progress percentage (0-100)
  */
-export function updateQueueItemProgress(id, progress) {
+export function updateQueueItemProgress(id: string, progress: number): void {
   const item = uploadQueue.find(q => q.id === id);
   if (item) {
     item.progress = progress;
@@ -194,10 +217,8 @@ export function updateQueueItemProgress(id, progress) {
 
 /**
  * Mark queue item as complete
- * @param {string} id - The queue item ID
- * @param {Object|null} mediaAsset - The uploaded media asset data
  */
-export function markQueueItemComplete(id, mediaAsset) {
+export function markQueueItemComplete(id: string, mediaAsset: MediaAsset | null): void {
   const item = uploadQueue.find(q => q.id === id);
   if (item) {
     item.status = 'complete';
@@ -227,10 +248,8 @@ export function markQueueItemComplete(id, mediaAsset) {
 
 /**
  * Mark queue item as failed
- * @param {string} id - The queue item ID
- * @param {string} error - The error message
  */
-export function markQueueItemFailed(id, error) {
+export function markQueueItemFailed(id: string, error: string): void {
   const item = uploadQueue.find(q => q.id === id);
   if (item) {
     item.status = 'failed';
@@ -242,14 +261,13 @@ export function markQueueItemFailed(id, error) {
 
 /**
  * Retry a failed upload
- * @param {string} id - The queue item ID
  */
-export function retryQueueItem(id) {
+export function retryQueueItem(id: string): void {
   const item = uploadQueue.find(q => q.id === id);
   if (item && item.status === 'failed') {
     item.status = 'uploading';
     item.progress = 0;
-    item.error = null;
+    item.error = undefined;
     updateQueueItemUI(id);
     uploadQueueItem(item);
   }
@@ -257,9 +275,8 @@ export function retryQueueItem(id) {
 
 /**
  * Remove item from upload queue
- * @param {string} id - The queue item ID
  */
-export function removeFromUploadQueue(id) {
+export function removeFromUploadQueue(id: string): void {
   uploadQueue = uploadQueue.filter(q => q.id !== id);
   renderUploadQueue();
 }
@@ -267,13 +284,13 @@ export function removeFromUploadQueue(id) {
 /**
  * Render the entire upload queue UI
  */
-export function renderUploadQueue() {
+export function renderUploadQueue(): void {
   if (!uploadQueueEl || !uploadQueueCountEl || !uploadQueueItemsEl) {
     return;
   }
 
   // Filter to only show active items (uploading or failed, or recently completed)
-  const activeItems = uploadQueue.filter(q => q.status !== 'complete' || Date.now() - q.completedAt < 1500);
+  const activeItems = uploadQueue.filter(q => q.status !== 'complete' || (q.completedAt && Date.now() - q.completedAt < 1500));
 
   // Show/hide queue based on content
   if (activeItems.length === 0) {
@@ -291,14 +308,14 @@ export function renderUploadQueue() {
   const queueTitle = uploadQueueEl.querySelector('.upload-queue-title');
 
   if (failedCount > 0 && uploadingCount === 0) {
-    queueTitle.textContent = failedCount === 1 ? '1 upload failed' : `${failedCount} uploads failed`;
-    uploadQueueCountEl.textContent = failedCount;
+    if (queueTitle) queueTitle.textContent = failedCount === 1 ? '1 upload failed' : `${failedCount} uploads failed`;
+    uploadQueueCountEl.textContent = String(failedCount);
   } else if (uploadingCount > 0) {
-    queueTitle.textContent = 'Uploading...';
-    uploadQueueCountEl.textContent = uploadingCount;
+    if (queueTitle) queueTitle.textContent = 'Uploading...';
+    uploadQueueCountEl.textContent = String(uploadingCount);
   } else {
-    queueTitle.textContent = 'Upload complete';
-    uploadQueueCountEl.textContent = uploadQueue.length;
+    if (queueTitle) queueTitle.textContent = 'Upload complete';
+    uploadQueueCountEl.textContent = String(uploadQueue.length);
   }
 
   // Clear and rebuild items
@@ -362,9 +379,8 @@ export function renderUploadQueue() {
 
 /**
  * Update a single queue item's UI (for progress updates)
- * @param {string} id - The queue item ID
  */
-export function updateQueueItemUI(id) {
+export function updateQueueItemUI(id: string): void {
   const item = uploadQueue.find(q => q.id === id);
   if (!item) return;
 
@@ -384,7 +400,7 @@ export function updateQueueItemUI(id) {
     if (progressRing) {
       const circumference = 2 * Math.PI * 10;
       const dashoffset = circumference - (item.progress / 100) * circumference;
-      progressRing.setAttribute('stroke-dashoffset', dashoffset);
+      progressRing.setAttribute('stroke-dashoffset', String(dashoffset));
     }
   }
 }
@@ -392,7 +408,7 @@ export function updateQueueItemUI(id) {
 /**
  * Clear all items from upload queue (for testing/debug)
  */
-export function clearUploadQueue() {
+export function clearUploadQueue(): void {
   uploadQueue = [];
   renderUploadQueue();
 }

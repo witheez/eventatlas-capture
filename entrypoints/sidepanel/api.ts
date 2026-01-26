@@ -5,10 +5,98 @@
  * All API calls go through the centralized apiRequest() function.
  */
 
-import { normalizeUrl } from './utils.js';
+import { normalizeUrl } from './utils';
 
 // Storage key for sync data (must match sidepanel.js)
 const SYNC_DATA_KEY = 'eventatlas_sync_data';
+
+// Type definitions
+export interface ApiSettings {
+  apiUrl: string;
+  apiToken: string;
+  syncMode?: string;
+}
+
+interface ApiRequestOptions {
+  apiUrl: string;
+  apiToken: string;
+  method?: string;
+  params?: Record<string, string> | null;
+  body?: Record<string, unknown> | null;
+  timeout?: number;
+  signal?: AbortSignal | null;
+}
+
+interface ApiResponse<T = unknown> {
+  ok: boolean;
+  status: number;
+  data: T | null;
+  error: string | null;
+}
+
+export interface SyncEvent {
+  id: number;
+  source_url_normalized: string;
+  title?: string;
+  name?: string;
+}
+
+export interface OrganizerLink {
+  url_normalized: string;
+  id: number;
+}
+
+export interface SyncData {
+  events: SyncEvent[];
+  organizer_links: OrganizerLink[];
+  synced_at: string;
+}
+
+export interface EventMatch {
+  match_type: 'event';
+  event: SyncEvent;
+}
+
+export interface LinkDiscoveryMatch {
+  match_type: 'link_discovery';
+  organizer_link: OrganizerLink;
+  link_discovery?: LinkDiscoveryData;
+}
+
+export interface ContentItemMatch {
+  match_type: 'content_item';
+}
+
+export interface NoMatch {
+  match_type: 'no_match';
+}
+
+export type LookupResult = EventMatch | LinkDiscoveryMatch | ContentItemMatch | NoMatch | null;
+
+export interface LinkDiscoveryData {
+  organizer_link_id: number;
+  organizer_name: string;
+  has_api_endpoint: boolean;
+  last_scraped_at: string | null;
+  url_pattern: string | null;
+  child_links: { url: string }[];
+}
+
+export interface Tag {
+  id: number;
+  name: string;
+  events_count?: number;
+}
+
+export interface EventType {
+  id: number;
+  name: string;
+}
+
+export interface Distance {
+  value: number;
+  label: string;
+}
 
 // =============================================================================
 // API Client
@@ -18,10 +106,8 @@ const SYNC_DATA_KEY = 'eventatlas_sync_data';
  * Normalize API base URL - adds protocol if missing
  * Uses http:// for localhost/127.0.0.1, https:// for everything else
  * Users can override by explicitly typing http:// or https://
- * @param {string} url - API URL (may or may not have protocol)
- * @returns {string} URL with protocol
  */
-function normalizeBaseUrl(url) {
+function normalizeBaseUrl(url: string): string {
   if (!url) return url;
 
   // Remove trailing slashes
@@ -43,19 +129,8 @@ function normalizeBaseUrl(url) {
 /**
  * Centralized API request function
  * All API calls should go through this function
- *
- * @param {string} endpoint - API endpoint (e.g., '/api/extension/sync')
- * @param {Object} options - Request options
- * @param {string} options.apiUrl - Base API URL
- * @param {string} options.apiToken - Bearer token
- * @param {string} [options.method='GET'] - HTTP method
- * @param {Object} [options.params] - Query parameters
- * @param {Object} [options.body] - Request body (will be JSON stringified)
- * @param {number} [options.timeout=10000] - Request timeout in ms
- * @param {AbortSignal} [options.signal] - AbortController signal
- * @returns {Promise<{ok: boolean, status: number, data: any, error?: string}>}
  */
-async function apiRequest(endpoint, options) {
+async function apiRequest<T = unknown>(endpoint: string, options: ApiRequestOptions): Promise<ApiResponse<T>> {
   const {
     apiUrl,
     apiToken,
@@ -78,7 +153,7 @@ async function apiRequest(endpoint, options) {
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const fetchOptions = {
+    const fetchOptions: RequestInit = {
       method,
       headers: {
         'Accept': 'application/json',
@@ -88,7 +163,7 @@ async function apiRequest(endpoint, options) {
     };
 
     if (body) {
-      fetchOptions.headers['Content-Type'] = 'application/json';
+      (fetchOptions.headers as Record<string, string>)['Content-Type'] = 'application/json';
       fetchOptions.body = JSON.stringify(body);
     }
 
@@ -106,11 +181,11 @@ async function apiRequest(endpoint, options) {
   } catch (error) {
     clearTimeout(timeoutId);
 
-    if (error.name === 'AbortError') {
+    if (error instanceof Error && error.name === 'AbortError') {
       return { ok: false, status: 0, data: null, error: 'Timeout' };
     }
 
-    return { ok: false, status: 0, data: null, error: error.message };
+    return { ok: false, status: 0, data: null, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
 
@@ -121,19 +196,17 @@ async function apiRequest(endpoint, options) {
 /**
  * Sync data from EventAtlas API (bulk sync)
  * Fetches events and organizer links for local URL matching
- * @param {Object} settings - Settings object with apiUrl, apiToken, syncMode
- * @returns {Promise<Object|null>} Sync data or null on error
  */
-export async function syncWithApi(settings) {
+export async function syncWithApi(settings: ApiSettings): Promise<SyncData | null> {
   if (!settings.apiUrl || !settings.apiToken) return null;
   if (settings.syncMode === 'realtime_only') return null;
 
-  const result = await apiRequest('/api/extension/sync', {
+  const result = await apiRequest<SyncData>('/api/extension/sync', {
     apiUrl: settings.apiUrl,
     apiToken: settings.apiToken,
   });
 
-  if (!result.ok) {
+  if (!result.ok || !result.data) {
     console.error('[EventAtlas] Sync error:', result.error);
     return null;
   }
@@ -153,13 +226,11 @@ export async function syncWithApi(settings) {
 /**
  * Get local match for a URL from synced data
  * Returns match info if URL exists in events or organizer links
- * @param {string} url - URL to check
- * @returns {Promise<Object|null>} Match info or null
  */
-async function getLocalMatch(url) {
+async function getLocalMatch(url: string): Promise<EventMatch | LinkDiscoveryMatch | null> {
   try {
     const result = await chrome.storage.local.get([SYNC_DATA_KEY]);
-    const syncData = result[SYNC_DATA_KEY];
+    const syncData = result[SYNC_DATA_KEY] as { events?: SyncEvent[]; organizerLinks?: OrganizerLink[] } | undefined;
 
     if (!syncData) return null;
 
@@ -191,11 +262,8 @@ async function getLocalMatch(url) {
 /**
  * Lookup URL via API (real-time) or local sync data
  * Combines local and remote lookups based on sync mode
- * @param {string} url - URL to lookup
- * @param {Object} settings - Settings object with apiUrl, apiToken, syncMode
- * @returns {Promise<Object|null>} Match result or null
  */
-export async function lookupUrl(url, settings) {
+export async function lookupUrl(url: string, settings: ApiSettings): Promise<LookupResult> {
   // First check local sync data
   const local = await getLocalMatch(url);
 
@@ -205,7 +273,7 @@ export async function lookupUrl(url, settings) {
   // Otherwise, do real-time lookup
   if (!settings.apiUrl || !settings.apiToken) return local;
 
-  const result = await apiRequest('/api/extension/lookup', {
+  const result = await apiRequest<LookupResult>('/api/extension/lookup', {
     apiUrl: settings.apiUrl,
     apiToken: settings.apiToken,
     params: { url },
@@ -221,11 +289,8 @@ export async function lookupUrl(url, settings) {
 
 /**
  * Test API connection
- * @param {string} apiUrl - API URL to test
- * @param {string} apiToken - API token to use
- * @returns {Promise<{success: boolean, message: string}>} Test result
  */
-export async function testApiConnection(apiUrl, apiToken) {
+export async function testApiConnection(apiUrl: string, apiToken: string): Promise<{ success: boolean; message: string }> {
   if (!apiUrl) {
     return { success: false, message: 'Enter API URL' };
   }
@@ -261,18 +326,16 @@ export async function testApiConnection(apiUrl, apiToken) {
 
 /**
  * Fetch available tags from API
- * @param {Object} settings - Settings object with apiUrl, apiToken
- * @returns {Promise<Array>} Array of tags or empty array on error
  */
-export async function fetchTags(settings) {
+export async function fetchTags(settings: ApiSettings): Promise<Tag[]> {
   if (!settings.apiUrl || !settings.apiToken) return [];
 
-  const result = await apiRequest('/api/extension/tags', {
+  const result = await apiRequest<{ tags: Tag[] }>('/api/extension/tags', {
     apiUrl: settings.apiUrl,
     apiToken: settings.apiToken,
   });
 
-  if (!result.ok) {
+  if (!result.ok || !result.data) {
     console.error('[EventAtlas] Error fetching tags:', result.error);
     return [];
   }
@@ -282,18 +345,16 @@ export async function fetchTags(settings) {
 
 /**
  * Fetch available event types from API
- * @param {Object} settings - Settings object with apiUrl, apiToken
- * @returns {Promise<Array>} Array of event types or empty array on error
  */
-export async function fetchEventTypes(settings) {
+export async function fetchEventTypes(settings: ApiSettings): Promise<EventType[]> {
   if (!settings.apiUrl || !settings.apiToken) return [];
 
-  const result = await apiRequest('/api/extension/event-types', {
+  const result = await apiRequest<{ event_types: EventType[] }>('/api/extension/event-types', {
     apiUrl: settings.apiUrl,
     apiToken: settings.apiToken,
   });
 
-  if (!result.ok) {
+  if (!result.ok || !result.data) {
     console.error('[EventAtlas] Error fetching event types:', result.error);
     return [];
   }
@@ -303,18 +364,16 @@ export async function fetchEventTypes(settings) {
 
 /**
  * Fetch available distances from API
- * @param {Object} settings - Settings object with apiUrl, apiToken
- * @returns {Promise<Array>} Array of distances or empty array on error
  */
-export async function fetchDistances(settings) {
+export async function fetchDistances(settings: ApiSettings): Promise<Distance[]> {
   if (!settings.apiUrl || !settings.apiToken) return [];
 
-  const result = await apiRequest('/api/extension/distances', {
+  const result = await apiRequest<{ distances: Distance[] }>('/api/extension/distances', {
     apiUrl: settings.apiUrl,
     apiToken: settings.apiToken,
   });
 
-  if (!result.ok) {
+  if (!result.ok || !result.data) {
     console.error('[EventAtlas] Error fetching distances:', result.error);
     return [];
   }

@@ -6,14 +6,34 @@
  * Shows badge indicators for known URLs from EventAtlas sync data.
  */
 
-import { normalizeUrl } from '@/utils/url.js';
+import { normalizeUrl } from '@/utils/url';
+
+interface SyncEvent {
+  source_url_normalized: string;
+}
+
+interface OrganizerLink {
+  url_normalized: string;
+}
+
+interface SyncData {
+  events?: SyncEvent[];
+  organizerLinks?: OrganizerLink[];
+}
+
+interface BadgeConfig {
+  text: string;
+  color: string;
+}
+
+type MatchType = 'event' | 'content_item' | 'link_discovery' | 'no_match';
 
 export default defineBackground(() => {
   // Storage key for sync data from EventAtlas
   const SYNC_DATA_KEY = 'eventatlas_sync_data';
 
   // Badge configuration by match type
-  const BADGE_CONFIG = {
+  const BADGE_CONFIG: Record<MatchType, BadgeConfig> = {
     event: { text: '\u2713', color: '#22c55e' },           // Green checkmark - known event
     content_item: { text: '\u25D0', color: '#f59e0b' },    // Amber half-circle - scraped but no event
     link_discovery: { text: '\u2295', color: '#3b82f6' },  // Blue circled plus - discovery page
@@ -22,10 +42,8 @@ export default defineBackground(() => {
 
   /**
    * Update badge for a specific tab based on its URL
-   * @param {number} tabId - Tab ID
-   * @param {string} url - Tab URL
    */
-  async function updateBadgeForTab(tabId, url) {
+  async function updateBadgeForTab(tabId: number, url: string): Promise<void> {
     // Skip chrome:// and extension:// URLs
     if (!url || url.startsWith('chrome://') || url.startsWith('chrome-extension://')) {
       await chrome.action.setBadgeText({ tabId, text: '' });
@@ -34,7 +52,7 @@ export default defineBackground(() => {
 
     try {
       const result = await chrome.storage.local.get(SYNC_DATA_KEY);
-      const syncData = result[SYNC_DATA_KEY];
+      const syncData = result[SYNC_DATA_KEY] as SyncData | undefined;
 
       if (!syncData) {
         await chrome.action.setBadgeText({ tabId, text: '' });
@@ -42,7 +60,7 @@ export default defineBackground(() => {
       }
 
       const normalizedUrl = normalizeUrl(url);
-      let matchType = 'no_match';
+      let matchType: MatchType = 'no_match';
 
       // Check against events (highest priority)
       // API returns source_url_normalized - already normalized, compare directly
@@ -81,10 +99,8 @@ export default defineBackground(() => {
 
   /**
    * Capture visible tab screenshot
-   * @param {number} windowId - Window ID to capture
-   * @returns {Promise<string>} Base64 PNG data URL
    */
-  async function captureScreenshot(windowId) {
+  async function captureScreenshot(windowId: number): Promise<string> {
     try {
       const dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
         format: 'png',
@@ -111,7 +127,7 @@ export default defineBackground(() => {
     if (request.action === 'captureScreenshot') {
       captureScreenshot(request.windowId)
         .then((screenshot) => sendResponse({ screenshot }))
-        .catch((error) => sendResponse({ error: error.message }));
+        .catch((error: Error) => sendResponse({ error: error.message }));
       return true; // Keep channel open for async response
     }
   });

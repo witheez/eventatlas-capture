@@ -5,14 +5,16 @@
  * Manages the page status indicator and link scanning/comparison.
  */
 
-import { escapeRegex, escapeHtml, normalizeUrl } from './utils.js';
-import { lookupUrl } from './api.js';
+import { escapeRegex, escapeHtml, normalizeUrl } from './utils';
+import { lookupUrl } from './api';
+import type { Settings } from './storage';
+import type { LookupResult, LinkDiscoveryData } from './api';
 
 /**
  * Known EventAtlas domains (production, staging, local)
  * These are checked in addition to settings.apiUrl
  */
-const KNOWN_EVENTATLAS_DOMAINS = [
+const KNOWN_EVENTATLAS_DOMAINS: string[] = [
   'https://www.eventatlas.co',
   'https://eventatlas.co',
   'https://eventatlasco-staging.up.railway.app',
@@ -21,18 +23,74 @@ const KNOWN_EVENTATLAS_DOMAINS = [
   'https://eventatlas.test',
 ];
 
+// Type definitions
+interface UrlStatusElements {
+  pageTitleEl?: HTMLElement | null;
+  pageUrlEl?: HTMLElement | null;
+  statusSection?: HTMLElement | null;
+  pageInfoBadge?: HTMLElement | null;
+  pageInfoBadgeText?: HTMLElement | null;
+  pageInfoBadgeIcon?: HTMLElement | null;
+  statusViewLink?: HTMLAnchorElement | null;
+  urlStatusDetails?: HTMLElement | null;
+  pageInfoSection?: HTMLElement | null;
+  pageInfoDetails?: HTMLElement | null;
+  pageInfoEventName?: HTMLElement | null;
+  captureButtons?: HTMLElement | null;
+  bundleSection?: HTMLElement | null;
+  linkDiscoveryView?: HTMLElement | null;
+  discoverySourceName?: HTMLElement | null;
+  discoveryApiBadge?: HTMLElement | null;
+  discoveryLastScraped?: HTMLElement | null;
+  scanPageLinksBtn?: HTMLButtonElement | null;
+  linkComparisonResults?: HTMLElement | null;
+  newLinksCount?: HTMLElement | null;
+  knownLinksCount?: HTMLElement | null;
+  newLinksList?: HTMLElement | null;
+  knownLinksList?: HTMLElement | null;
+  selectAllNewLinks?: HTMLInputElement | null;
+  selectedLinksCountEl?: HTMLElement | null;
+  addNewLinksBtn?: HTMLButtonElement | null;
+}
+
+interface UrlStatusCallbacks {
+  showToast?: ((message: string, type?: string) => void) | null;
+  showEventEditor?: ((event: { id: number; title?: string; name?: string }) => void) | null;
+  hideEventEditor?: (() => void) | null;
+  updateBundleUIVisibility?: ((visible: boolean) => void) | null;
+  updateCaptureButtonsVisibility?: (() => void) | null;
+  hasUnsavedChanges?: (() => boolean) | null;
+  showUnsavedDialog?: (() => void) | null;
+}
+
+interface UrlStatusConfig {
+  settings: Settings;
+  elements: UrlStatusElements;
+  callbacks?: UrlStatusCallbacks;
+}
+
+interface EventAtlasUrlMatch {
+  type: 'admin' | 'frontend';
+  eventId?: number;
+  eventIdOrSlug?: string;
+}
+
+interface ChildLink {
+  url: string;
+}
+
 // Module state
-let settings = null;
-let currentLinkDiscovery = null;
-let extractedPageLinks = [];
-let newDiscoveredLinks = [];
-let selectedNewLinks = new Set();
+let settings: Settings | null = null;
+let currentLinkDiscovery: LinkDiscoveryData | null = null;
+let extractedPageLinks: string[] = [];
+let newDiscoveredLinks: string[] = [];
+let selectedNewLinks = new Set<string>();
 
 // DOM element references (set during init)
-let elements = {};
+let elements: UrlStatusElements = {};
 
 // Callbacks for external integrations
-let callbacks = {
+let callbacks: UrlStatusCallbacks = {
   showToast: null,
   showEventEditor: null,
   hideEventEditor: null,
@@ -43,17 +101,13 @@ let callbacks = {
 };
 
 // Last known URL for unsaved changes detection
-let lastKnownUrl = null;
-let pendingUrlChange = null;
+let lastKnownUrl: string | null = null;
+let pendingUrlChange: string | null = null;
 
 /**
  * Initialize the URL status module
- * @param {Object} config - Configuration object
- * @param {Object} config.settings - Settings reference (will be updated externally)
- * @param {Object} config.elements - DOM element references
- * @param {Object} config.callbacks - Callback functions for external integrations
  */
-export function initUrlStatus(config) {
+export function initUrlStatus(config: UrlStatusConfig): void {
   settings = config.settings;
   elements = config.elements;
   callbacks = { ...callbacks, ...config.callbacks };
@@ -61,53 +115,50 @@ export function initUrlStatus(config) {
 
 /**
  * Update the settings reference
- * @param {Object} newSettings - New settings object
  */
-export function updateSettings(newSettings) {
+export function updateSettings(newSettings: Settings): void {
   settings = newSettings;
 }
 
 /**
  * Get the current link discovery state
  */
-export function getCurrentLinkDiscovery() {
+export function getCurrentLinkDiscovery(): LinkDiscoveryData | null {
   return currentLinkDiscovery;
 }
 
 /**
  * Get the pending URL change
  */
-export function getPendingUrlChange() {
+export function getPendingUrlChange(): string | null {
   return pendingUrlChange;
 }
 
 /**
  * Set the pending URL change
  */
-export function setPendingUrlChange(url) {
+export function setPendingUrlChange(url: string | null): void {
   pendingUrlChange = url;
 }
 
 /**
  * Get the last known URL
  */
-export function getLastKnownUrl() {
+export function getLastKnownUrl(): string | null {
   return lastKnownUrl;
 }
 
 /**
  * Set the last known URL
  */
-export function setLastKnownUrl(url) {
+export function setLastKnownUrl(url: string | null): void {
   lastKnownUrl = url;
 }
 
 /**
  * Check if URL matches EventAtlas patterns
- * @param {string} url - URL to check
- * @returns {Object|null} Match result with type and eventId/eventIdOrSlug
  */
-export function checkIfEventAtlasUrl(url) {
+export function checkIfEventAtlasUrl(url: string): EventAtlasUrlMatch | null {
   // Build list of domains to check: known domains + settings.apiUrl
   const domainsToCheck = [...KNOWN_EVENTATLAS_DOMAINS];
   if (settings?.apiUrl) {
@@ -140,10 +191,8 @@ export function checkIfEventAtlasUrl(url) {
 /**
  * Build admin edit URL for an event
  * Prefers eventatlas.co for production, falls back to apiUrl
- * @param {number} eventId - Event ID
- * @returns {string|null} Admin URL or null
  */
-export function buildAdminEditUrl(eventId) {
+export function buildAdminEditUrl(eventId: number | undefined | null): string | null {
   if (!eventId) return null;
   // Prefer the production domain for admin links
   const baseUrl = 'https://www.eventatlas.co';
@@ -153,7 +202,7 @@ export function buildAdminEditUrl(eventId) {
 /**
  * Update UI with current tab info
  */
-export async function updateTabInfo() {
+export async function updateTabInfo(): Promise<void> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab) {
@@ -184,10 +233,8 @@ export async function updateTabInfo() {
 
 /**
  * Render URL status details with optional admin link
- * @param {string} eventName - Event name to display
- * @param {number} eventId - Event ID for admin link
  */
-export function renderUrlStatusDetails(eventName, eventId) {
+export function renderUrlStatusDetails(eventName: string, eventId: number | undefined): void {
   if (!elements.urlStatusDetails) return;
 
   elements.urlStatusDetails.innerHTML = '';
@@ -230,11 +277,8 @@ export function renderUrlStatusDetails(eventName, eventId) {
 
 /**
  * Update the combined page info badge and status section visibility
- * @param {string} type - Badge type (loading, event, no-match, link-discovery, content-item)
- * @param {string} text - Badge text
- * @param {string|null} icon - Badge icon character
  */
-export function updatePageInfoBadge(type, text, icon = null) {
+export function updatePageInfoBadge(type: string, text: string, icon: string | null = null): void {
   if (elements.statusSection) elements.statusSection.style.display = 'flex';
   if (elements.pageInfoBadge) elements.pageInfoBadge.className = 'page-info-badge ' + type;
   if (elements.pageInfoBadgeText) elements.pageInfoBadgeText.textContent = text;
@@ -245,9 +289,8 @@ export function updatePageInfoBadge(type, text, icon = null) {
 
 /**
  * Show or hide the View link under the status badge
- * @param {number|null} eventId - Event ID or null to hide
  */
-export function updateStatusViewLink(eventId) {
+export function updateStatusViewLink(eventId: number | null | undefined): void {
   if (!elements.statusViewLink) return;
 
   if (eventId) {
@@ -269,41 +312,27 @@ export function updateStatusViewLink(eventId) {
 
 /**
  * Show or hide the bundle UI based on whether an event is matched
- * Note: status section visibility is controlled by updatePageInfoBadge/hidePageInfoStatus,
- * not here, to avoid conflicts with "no API configured" state
- * @param {boolean} isEventMatched - Whether an event is matched
  */
-export function updateBundleUIVisibility(isEventMatched) {
+export function updateBundleUIVisibility(isEventMatched: boolean): void {
   if (isEventMatched) {
-    // Hide page info, status section, and bundle UI when event is matched
-    // (page info is now shown in the event editor accordion header)
     if (elements.pageInfoSection) elements.pageInfoSection.style.display = 'none';
     if (elements.statusSection) elements.statusSection.style.display = 'none';
     if (elements.captureButtons) elements.captureButtons.style.display = 'none';
     if (elements.bundleSection) elements.bundleSection.style.display = 'none';
   } else {
-    // Show page info and bundle UI when no event matched
-    // Note: status section visibility is NOT changed here - it's controlled by
-    // updatePageInfoBadge (shows) and hidePageInfoStatus (hides)
     if (elements.pageInfoSection) elements.pageInfoSection.style.display = 'block';
     if (elements.captureButtons) elements.captureButtons.style.display = 'block';
     if (elements.bundleSection) elements.bundleSection.style.display = 'block';
-    // Also update the capture buttons visibility based on settings
     callbacks.updateCaptureButtonsVisibility?.();
   }
 }
 
 /**
  * Update the page info details section (legacy - kept for backward compatibility)
- * The actual display is now handled by updateStatusViewLink and the status section
- * @param {string} eventName - Event name
- * @param {number} eventId - Event ID
  */
-export function updatePageInfoDetails(eventName, eventId) {
-  // Legacy section is now always hidden - display handled by status section
+export function updatePageInfoDetails(eventName: string, eventId: number | undefined): void {
   if (elements.pageInfoDetails) elements.pageInfoDetails.style.display = 'none';
 
-  // Store values for legacy compatibility
   if (eventName && elements.pageInfoEventName) {
     elements.pageInfoEventName.textContent = eventName || '';
     elements.pageInfoEventName.title = eventName || '';
@@ -313,28 +342,24 @@ export function updatePageInfoDetails(eventName, eventId) {
 /**
  * Hide page info badge and details
  */
-export function hidePageInfoStatus() {
+export function hidePageInfoStatus(): void {
   if (elements.statusSection) elements.statusSection.style.display = 'none';
   if (elements.statusViewLink) elements.statusViewLink.style.display = 'none';
   if (elements.pageInfoDetails) elements.pageInfoDetails.style.display = 'none';
-  // Show bundle UI when status is hidden
   updateBundleUIVisibility(false);
-  // Also hide link discovery view
   hideLinkDiscoveryView();
 }
 
 /**
  * Update URL status indicator based on current tab URL
  */
-export async function updateUrlStatus() {
-  // Skip if no API configured
+export async function updateUrlStatus(): Promise<void> {
   if (!settings?.apiUrl || !settings?.apiToken) {
     hidePageInfoStatus();
     callbacks.hideEventEditor?.();
     return;
   }
 
-  // Get current tab URL
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
     hidePageInfoStatus();
@@ -342,26 +367,21 @@ export async function updateUrlStatus() {
     return;
   }
 
-  // Check if this is an EventAtlas URL first
   const eventAtlasMatch = checkIfEventAtlasUrl(tab.url);
   if (eventAtlasMatch) {
-    // Show loading state
     updatePageInfoBadge('loading', 'Checking...', '\u22EF');
     updateStatusViewLink(null);
     updateBundleUIVisibility(false);
 
-    // For EventAtlas URLs, we can fetch event details directly
-    // Still use lookup API which will match, but we know it's our own page
     try {
       const result = await lookupUrl(tab.url, settings);
-      if (result && result.match_type === 'event' && result.event) {
+      if (result && result.match_type === 'event' && 'event' in result && result.event) {
         updatePageInfoBadge('event', 'EventAtlas Event', '\u2713');
         updateStatusViewLink(result.event.id);
         updateBundleUIVisibility(true);
-        callbacks.showEventEditor?.(result.event);
+        callbacks.showEventEditor?.(result.event as { id: number; title?: string; name?: string });
         hideLinkDiscoveryView();
       } else {
-        // EventAtlas URL but no match found (maybe event deleted)
         updatePageInfoBadge('no-match', 'EventAtlas Page', '\u25CB');
         updateStatusViewLink(null);
         updateBundleUIVisibility(false);
@@ -377,7 +397,6 @@ export async function updateUrlStatus() {
     return;
   }
 
-  // Show loading state for external URLs
   updatePageInfoBadge('loading', 'Checking...', '\u22EF');
   updateStatusViewLink(null);
   updateBundleUIVisibility(false);
@@ -391,20 +410,18 @@ export async function updateUrlStatus() {
       updateBundleUIVisibility(false);
       callbacks.hideEventEditor?.();
       hideLinkDiscoveryView();
-    } else if (result.match_type === 'event') {
+    } else if (result.match_type === 'event' && 'event' in result) {
       updatePageInfoBadge('event', 'Known Event', '\u2713');
       updateStatusViewLink(result.event?.id);
       updateBundleUIVisibility(true);
-      // Show event editor
-      callbacks.showEventEditor?.(result.event);
+      callbacks.showEventEditor?.(result.event as { id: number; title?: string; name?: string });
       hideLinkDiscoveryView();
-    } else if (result.match_type === 'link_discovery') {
+    } else if (result.match_type === 'link_discovery' && 'link_discovery' in result) {
       updatePageInfoBadge('link-discovery', 'Discovery', '\u2295');
       updateStatusViewLink(null);
       updateBundleUIVisibility(false);
       callbacks.hideEventEditor?.();
-      // Show the link discovery view with enhanced data
-      showLinkDiscoveryView(result.link_discovery);
+      showLinkDiscoveryView(result.link_discovery as LinkDiscoveryData);
     } else if (result.match_type === 'content_item') {
       updatePageInfoBadge('content-item', 'Scraped', '\u25D0');
       updateStatusViewLink(null);
@@ -426,22 +443,18 @@ export async function updateUrlStatus() {
 
 /**
  * Show the link discovery view with data from lookup response
- * @param {Object} linkDiscoveryData - Link discovery data from API
  */
-export function showLinkDiscoveryView(linkDiscoveryData) {
+export function showLinkDiscoveryView(linkDiscoveryData: LinkDiscoveryData): void {
   currentLinkDiscovery = linkDiscoveryData;
 
-  // Update header info
   if (elements.discoverySourceName) {
     elements.discoverySourceName.textContent = linkDiscoveryData.organizer_name || 'Unknown Source';
   }
 
-  // Show/hide API badge
   if (elements.discoveryApiBadge) {
     elements.discoveryApiBadge.style.display = linkDiscoveryData.has_api_endpoint ? 'inline-block' : 'none';
   }
 
-  // Show last scraped date
   if (elements.discoveryLastScraped) {
     if (linkDiscoveryData.last_scraped_at) {
       const date = new Date(linkDiscoveryData.last_scraped_at);
@@ -451,7 +464,6 @@ export function showLinkDiscoveryView(linkDiscoveryData) {
     }
   }
 
-  // Reset state
   extractedPageLinks = [];
   newDiscoveredLinks = [];
   selectedNewLinks = new Set();
@@ -459,7 +471,6 @@ export function showLinkDiscoveryView(linkDiscoveryData) {
     elements.linkComparisonResults.style.display = 'none';
   }
 
-  // Show the view
   if (elements.linkDiscoveryView) {
     elements.linkDiscoveryView.style.display = 'block';
   }
@@ -468,7 +479,7 @@ export function showLinkDiscoveryView(linkDiscoveryData) {
 /**
  * Hide the link discovery view
  */
-export function hideLinkDiscoveryView() {
+export function hideLinkDiscoveryView(): void {
   if (elements.linkDiscoveryView) {
     elements.linkDiscoveryView.style.display = 'none';
   }
@@ -478,7 +489,7 @@ export function hideLinkDiscoveryView() {
 /**
  * Scan the current page for links using chrome.scripting
  */
-export async function scanPageForLinks() {
+export async function scanPageForLinks(): Promise<void> {
   if (!currentLinkDiscovery) return;
 
   const btn = elements.scanPageLinksBtn;
@@ -490,16 +501,14 @@ export async function scanPageForLinks() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-    // Execute script in page context to extract links
     const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId: tab.id! },
       func: extractLinksFromPage,
       args: [currentLinkDiscovery.url_pattern],
     });
 
-    extractedPageLinks = results[0]?.result || [];
+    extractedPageLinks = (results[0]?.result as string[]) || [];
 
-    // Compare with known links
     compareLinksAndRender();
 
     if (btn) {
@@ -518,36 +527,31 @@ export async function scanPageForLinks() {
 
 /**
  * Function injected into page to extract links
- * @param {string|null} urlPattern - Regex pattern to filter links
- * @returns {string[]} Array of normalized URLs
  */
-export function extractLinksFromPage(urlPattern) {
+export function extractLinksFromPage(urlPattern: string | null): string[] {
   const allLinks = document.querySelectorAll('a[href]');
-  const uniqueUrls = new Set();
+  const uniqueUrls = new Set<string>();
 
   allLinks.forEach((a) => {
-    const href = a.href;
+    const href = (a as HTMLAnchorElement).href;
     if (href && href.startsWith('http')) {
-      // Normalize URL - remove trailing slashes and fragments
       try {
         const url = new URL(href);
         let normalized = url.origin + url.pathname.replace(/\/$/, '');
 
         if (urlPattern) {
           try {
-            // URL pattern uses ~ as delimiter in PHP, we just use the pattern content
             const regex = new RegExp(urlPattern, 'i');
             if (regex.test(href)) {
               uniqueUrls.add(normalized);
             }
-          } catch (e) {
-            // Invalid regex, add anyway
+          } catch {
             uniqueUrls.add(normalized);
           }
         } else {
           uniqueUrls.add(normalized);
         }
-      } catch (e) {
+      } catch {
         // Invalid URL, skip
       }
     }
@@ -559,11 +563,10 @@ export function extractLinksFromPage(urlPattern) {
 /**
  * Compare extracted links with known child links and render results
  */
-export function compareLinksAndRender() {
+export function compareLinksAndRender(): void {
   if (!currentLinkDiscovery) return;
 
-  // Build set of known normalized URLs
-  const knownUrls = new Set();
+  const knownUrls = new Set<string>();
   const childLinks = currentLinkDiscovery.child_links || [];
 
   childLinks.forEach((link) => {
@@ -571,29 +574,23 @@ export function compareLinksAndRender() {
     knownUrls.add(normalized);
   });
 
-  // Find new links (on page but not in known)
   newDiscoveredLinks = extractedPageLinks.filter((url) => {
     const normalized = normalizeUrl(url);
     return !knownUrls.has(normalized);
   });
 
-  // Start with all new links selected
   selectedNewLinks = new Set(newDiscoveredLinks);
 
-  // Render results
   renderLinkComparison(childLinks);
 }
 
 /**
  * Render the link comparison results
- * @param {Array} childLinks - Known child links from API
  */
-export function renderLinkComparison(childLinks) {
-  // Update counts
-  if (elements.newLinksCount) elements.newLinksCount.textContent = newDiscoveredLinks.length;
-  if (elements.knownLinksCount) elements.knownLinksCount.textContent = childLinks.length;
+export function renderLinkComparison(childLinks: ChildLink[]): void {
+  if (elements.newLinksCount) elements.newLinksCount.textContent = String(newDiscoveredLinks.length);
+  if (elements.knownLinksCount) elements.knownLinksCount.textContent = String(childLinks.length);
 
-  // Render new links with checkboxes
   if (elements.newLinksList) {
     elements.newLinksList.innerHTML = newDiscoveredLinks
       .map(
@@ -608,26 +605,24 @@ export function renderLinkComparison(childLinks) {
       )
       .join('');
 
-    // Setup checkbox listeners
     elements.newLinksList.querySelectorAll('.new-link-checkbox').forEach((cb) => {
       cb.addEventListener('change', (e) => {
-        if (e.target.checked) {
-          selectedNewLinks.add(e.target.dataset.url);
+        const checkbox = e.target as HTMLInputElement;
+        if (checkbox.checked) {
+          selectedNewLinks.add(checkbox.dataset.url!);
         } else {
-          selectedNewLinks.delete(e.target.dataset.url);
+          selectedNewLinks.delete(checkbox.dataset.url!);
         }
         updateSelectedLinksCount();
       });
     });
   }
 
-  // Setup select all
   if (elements.selectAllNewLinks) {
     elements.selectAllNewLinks.checked = newDiscoveredLinks.length > 0;
     elements.selectAllNewLinks.disabled = newDiscoveredLinks.length === 0;
   }
 
-  // Render known links (read-only)
   if (elements.knownLinksList) {
     elements.knownLinksList.innerHTML = childLinks.map((link) => `<div class="link-item known-link">${escapeHtml(link.url)}</div>`).join('');
   }
@@ -641,9 +636,9 @@ export function renderLinkComparison(childLinks) {
 /**
  * Update the selected links count and button visibility
  */
-export function updateSelectedLinksCount() {
+export function updateSelectedLinksCount(): void {
   const count = selectedNewLinks.size;
-  if (elements.selectedLinksCountEl) elements.selectedLinksCountEl.textContent = count;
+  if (elements.selectedLinksCountEl) elements.selectedLinksCountEl.textContent = String(count);
   if (elements.addNewLinksBtn) {
     elements.addNewLinksBtn.style.display = count > 0 ? 'block' : 'none';
     elements.addNewLinksBtn.disabled = count === 0;
@@ -653,9 +648,9 @@ export function updateSelectedLinksCount() {
 /**
  * Add selected new links to the pipeline via API
  */
-export async function addNewLinksToPipeline() {
+export async function addNewLinksToPipeline(): Promise<void> {
   const linksToAdd = Array.from(selectedNewLinks);
-  if (linksToAdd.length === 0 || !currentLinkDiscovery) return;
+  if (linksToAdd.length === 0 || !currentLinkDiscovery || !settings) return;
 
   const btn = elements.addNewLinksBtn;
   if (btn) {
@@ -678,18 +673,17 @@ export async function addNewLinksToPipeline() {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+      const errorData = await response.json().catch(() => ({})) as { message?: string };
       throw new Error(errorData.message || `HTTP ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { created_count: number };
     callbacks.showToast?.(`Added ${data.created_count} new links to pipeline`);
 
-    // Refresh the lookup to get updated child links
     await updateUrlStatus();
   } catch (error) {
     console.error('[EventAtlas] Error adding links:', error);
-    callbacks.showToast?.('Error adding links: ' + error.message, 'error');
+    callbacks.showToast?.('Error adding links: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -700,19 +694,17 @@ export async function addNewLinksToPipeline() {
 
 /**
  * Toggle all new links selection
- * @param {boolean} selectAll - Whether to select all
  */
-export function toggleSelectAllNewLinks(selectAll) {
+export function toggleSelectAllNewLinks(selectAll: boolean): void {
   if (selectAll) {
     selectedNewLinks = new Set(newDiscoveredLinks);
   } else {
     selectedNewLinks.clear();
   }
 
-  // Update checkboxes
   if (elements.newLinksList) {
     elements.newLinksList.querySelectorAll('.new-link-checkbox').forEach((cb) => {
-      cb.checked = selectAll;
+      (cb as HTMLInputElement).checked = selectAll;
     });
   }
 
