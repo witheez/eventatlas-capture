@@ -367,11 +367,11 @@ const unsavedSaveBtn = document.getElementById('unsavedSaveBtn') as HTMLButtonEl
 const unsavedDiscardBtn = document.getElementById('unsavedDiscardBtn') as HTMLButtonElement;
 const unsavedCancelBtn = document.getElementById('unsavedCancelBtn') as HTMLButtonElement;
 
-// DOM Elements - Event Navigation
-const eventNavigation = document.getElementById('eventNavigation') as HTMLElement | null;
+// DOM Elements - Event Navigation (in tab header)
+const tabNavArrows = document.getElementById('tabNavArrows') as HTMLElement | null;
 const prevEventBtn = document.getElementById('prevEventBtn') as HTMLButtonElement | null;
 const nextEventBtn = document.getElementById('nextEventBtn') as HTMLButtonElement | null;
-const eventProgress = document.getElementById('eventProgress') as HTMLElement | null;
+const tabNavProgress = document.getElementById('tabNavProgress') as HTMLElement | null;
 
 // checkIfEventAtlasUrl and buildAdminEditUrl are imported from url-status.js
 
@@ -2470,7 +2470,7 @@ function hideEventEditor(): void {
     eventEditorModule.hideEventEditor();
   }
   // Hide navigation when editor is hidden
-  if (eventNavigation) eventNavigation.style.display = 'none';
+  if (tabNavArrows) tabNavArrows.style.display = 'none';
 }
 
 function hasUnsavedChanges(): boolean {
@@ -2552,16 +2552,16 @@ function updateEventNavigation(): void {
 
   // Hide navigation if no event list or current event not in list
   if (cache.length === 0 || currentIndex === -1) {
-    if (eventNavigation) eventNavigation.style.display = 'none';
+    if (tabNavArrows) tabNavArrows.style.display = 'none';
     return;
   }
 
   // Show navigation
-  if (eventNavigation) eventNavigation.style.display = 'flex';
+  if (tabNavArrows) tabNavArrows.style.display = 'flex';
 
-  // Update progress text
-  if (eventProgress) {
-    eventProgress.textContent = `Event ${currentIndex + 1} of ${cache.length}`;
+  // Update progress text (compact format: "3/47")
+  if (tabNavProgress) {
+    tabNavProgress.textContent = `${currentIndex + 1}/${cache.length}`;
   }
 
   // Update button states

@@ -133,8 +133,15 @@
 
   <!-- Tab navigation -->
   <div class="tab-navigation" id="tabNavigation">
-    <button class="tab-btn active" data-tab="current">Current</button>
-    <button class="tab-btn" data-tab="event-list">Event List</button>
+    <div class="tab-buttons">
+      <button class="tab-btn active" data-tab="current">Current</button>
+      <button class="tab-btn" data-tab="event-list">Event List</button>
+    </div>
+    <div class="tab-nav-arrows" id="tabNavArrows" style="display: none;">
+      <span class="tab-nav-progress" id="tabNavProgress">1/10</span>
+      <button class="tab-nav-arrow" id="prevEventBtn" title="Previous event">‹</button>
+      <button class="tab-nav-arrow" id="nextEventBtn" title="Next event">›</button>
+    </div>
   </div>
 
   <!-- Back navigation -->
@@ -242,12 +249,6 @@
       <!-- Hidden: legacy event name element for compatibility -->
       <div id="editorEventName" style="display: none;"></div>
 
-      <!-- Event navigation (prev/next in filtered list) -->
-      <div id="eventNavigation" class="event-navigation" style="display: none;">
-        <button id="prevEventBtn" class="nav-btn" title="Previous event">&#8592; Prev</button>
-        <span id="eventProgress" class="event-progress">Event 1 of 10</span>
-        <button id="nextEventBtn" class="nav-btn" title="Next event">Next &#8594;</button>
-      </div>
 
       <!-- Accordion Content -->
       <div class="event-editor-content" id="eventEditorContent">
