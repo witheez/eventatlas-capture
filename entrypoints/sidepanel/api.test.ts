@@ -147,6 +147,7 @@ describe('lookupUrl', () => {
     expect(result).toEqual({
       match_type: 'event',
       event: { id: 1, source_url_normalized: 'example.com/page', title: 'Test' },
+      source: 'cache',
     });
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -181,7 +182,7 @@ describe('lookupUrl', () => {
       expect.stringContaining('/api/extension/lookup'),
       expect.anything()
     );
-    expect(result).toEqual({ match_type: 'event', event: { id: 2 } });
+    expect(result).toEqual({ match_type: 'event', event: { id: 2 }, source: 'api' });
   });
 
   it('should fall back to local match on API error', async () => {
@@ -201,6 +202,7 @@ describe('lookupUrl', () => {
     expect(result).toEqual({
       match_type: 'event',
       event: { id: 1, source_url_normalized: 'example.com/page', title: 'Fallback' },
+      source: 'cache',
     });
     consoleError.mockRestore();
   });

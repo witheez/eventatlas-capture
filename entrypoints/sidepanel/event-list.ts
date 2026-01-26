@@ -35,7 +35,6 @@ interface EventListElements {
   backNav: HTMLElement | null;
   filterMissingTags: HTMLInputElement | null;
   filterMissingDistances: HTMLInputElement | null;
-  refreshEventListBtn: HTMLElement | null;
   autoSwitchTabSetting: HTMLInputElement | null;
   eventListRefreshIntervalSetting: HTMLSelectElement | null;
 }
@@ -206,7 +205,6 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
     backNav,
     filterMissingTags,
     filterMissingDistances,
-    refreshEventListBtn,
     autoSwitchTabSetting,
     eventListRefreshIntervalSetting,
   } = elements;
@@ -605,11 +603,6 @@ export function initEventList(deps: EventListDependencies): EventListAPI {
         fetchEventList();
       });
     });
-
-    // Refresh button
-    if (refreshEventListBtn) {
-      refreshEventListBtn.addEventListener('click', fetchEventList);
-    }
 
     // Event List Settings listeners
     if (autoSwitchTabSetting) {

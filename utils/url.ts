@@ -61,3 +61,56 @@ export function getDomain(url: string): string {
     return url;
   }
 }
+
+/**
+ * Check if two hosts are related (one is a subdomain of the other).
+ * Example: "kh.checkpointspot.asia" and "checkpointspot.asia" are related.
+ * @param host1 - First hostname
+ * @param host2 - Second hostname
+ * @returns true if hosts are related
+ */
+export function hostsAreRelated(host1: string, host2: string): boolean {
+  const h1 = host1.toLowerCase();
+  const h2 = host2.toLowerCase();
+
+  if (h1 === h2) return true;
+
+  // Check if one is a subdomain of the other
+  return h1.endsWith('.' + h2) || h2.endsWith('.' + h1);
+}
+
+/**
+ * Flexible URL matching - allows subdomain variations.
+ * Paths must match exactly, hosts can be subdomain-related.
+ * @param url1 - First URL to compare
+ * @param url2 - Second URL to compare
+ * @returns true if URLs match flexibly
+ */
+export function urlsMatchFlexible(url1: string, url2: string): boolean {
+  // First try exact normalized match (faster)
+  if (normalizeUrl(url1) === normalizeUrl(url2)) {
+    return true;
+  }
+
+  try {
+    const parsed1 = new URL(url1);
+    const parsed2 = new URL(url2);
+
+    // Strip www. from hostnames
+    const host1 = parsed1.hostname.toLowerCase().replace(/^www\./, '');
+    const host2 = parsed2.hostname.toLowerCase().replace(/^www\./, '');
+
+    // Hosts must be related
+    if (!hostsAreRelated(host1, host2)) {
+      return false;
+    }
+
+    // Paths must match exactly (after stripping trailing slash)
+    const path1 = parsed1.pathname.replace(/\/$/, '');
+    const path2 = parsed2.pathname.replace(/\/$/, '');
+
+    return path1 === path2;
+  } catch {
+    return false;
+  }
+}

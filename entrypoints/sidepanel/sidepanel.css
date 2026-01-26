@@ -1313,6 +1313,15 @@ body {
   background: #f9fafb;
 }
 
+.event-list-sync-time {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.event-list-sync-time:empty {
+  display: none;
+}
+
 /* Starts from filter */
 .filter-starts-from {
   display: flex;
@@ -2073,6 +2082,16 @@ body {
   border-radius: 12px;
   white-space: nowrap;
   background: #166534;
+  color: #ffffff;
+}
+
+.event-editor-badge.synced {
+  background: #22c55e;
+  color: #ffffff;
+}
+
+.event-editor-badge.cached {
+  background: #f59e0b;
   color: #ffffff;
 }
 
@@ -3051,5 +3070,58 @@ body {
 /* Add bottom padding to body when queue is active */
 body.has-upload-queue {
   padding-bottom: 80px;
+}
+
+/* ===== Freshness Indicators ===== */
+.freshness-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.freshness-indicator-icon {
+  font-size: 10px;
+}
+
+/* Fresh - green (< 1 hour) */
+.freshness-indicator.fresh {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+/* Stale - yellow (1-24 hours) */
+.freshness-indicator.stale {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* Old - red (> 24 hours) */
+.freshness-indicator.old {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* Event editor header freshness */
+.event-editor-freshness {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Event list item freshness - smaller, inline */
+.event-list-item-freshness {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Current event highlighting in list */
+.event-list-item-current {
+  background: #e8f5e9;
+  border-left: 3px solid #22c55e;
 }
 

@@ -56,6 +56,7 @@ import {
   getEventListCache,
   setEventListCache,
   setEventListLastFetched,
+  getEventListLastFetched,
   getEventListRefreshTimer,
   setEventListRefreshTimer,
   // Event editor state
@@ -184,7 +185,6 @@ const filterMissingTags = document.getElementById('filterMissingTags') as HTMLIn
 const filterMissingDistances = document.getElementById(
   'filterMissingDistances'
 ) as HTMLInputElement | null;
-const refreshEventListBtn = document.getElementById('refreshEventList') as HTMLButtonElement | null;
 
 // DOM Elements - Event List Settings
 const autoSwitchTabSetting = document.getElementById(
@@ -1638,6 +1638,11 @@ async function refreshPageData(): Promise<void> {
       renderSelectedDistances();
     }
 
+    // Refresh event list if on that tab
+    if (getActiveTab() === 'event-list') {
+      await fetchEventList();
+    }
+
     showToast('Page data refreshed', 'success');
   } catch (error) {
     console.error('[EventAtlas] Refresh error:', error);
@@ -1927,6 +1932,37 @@ function switchMainTab(tabName: 'current' | 'event-list'): void {
 }
 
 /**
+ * Update the sync time display in the event list filter bar
+ */
+function updateSyncTimeDisplay(): void {
+  const syncTimeEl = document.getElementById('eventListSyncTime');
+  if (!syncTimeEl) return;
+
+  const lastFetched = getEventListLastFetched();
+  if (!lastFetched) {
+    syncTimeEl.textContent = '';
+    return;
+  }
+
+  const seconds = Math.floor((Date.now() - lastFetched) / 1000);
+  let timeText: string;
+  if (seconds < 60) {
+    timeText = '0 min';
+  } else if (seconds < 3600) {
+    const mins = Math.floor(seconds / 60);
+    timeText = `${mins} min`;
+  } else if (seconds < 86400) {
+    const hours = Math.floor(seconds / 3600);
+    timeText = `${hours} hr`;
+  } else {
+    const days = Math.floor(seconds / 86400);
+    timeText = `${days} days`;
+  }
+
+  syncTimeEl.textContent = timeText;
+}
+
+/**
  * Fetch event list from API
  */
 async function fetchEventList(): Promise<void> {
@@ -1957,6 +1993,7 @@ async function fetchEventList(): Promise<void> {
     setEventListLastFetched(Date.now());
 
     renderEventList();
+    updateSyncTimeDisplay();
   } catch (error) {
     console.error('[EventAtlas] Event list fetch error:', error);
     showEventListEmpty('Error loading events');
@@ -1983,9 +2020,11 @@ function renderEventList(): void {
 
   if (eventListEmpty) eventListEmpty.style.display = 'none';
 
-  eventListCache.forEach((event) => {
+  const currentMatchedId = getCurrentMatchedEvent()?.id;
+  eventListCache.forEach((event, index) => {
     const item = createElement('div');
-    item.className = 'event-list-item';
+    const isCurrent = event.id === currentMatchedId;
+    item.className = isCurrent ? 'event-list-item event-list-item-current' : 'event-list-item';
     const startDate = event.start_datetime ? formatEventDate(event.start_datetime) : '';
     const eventUrl = fixUrl(event.primary_url || '');
 
@@ -1994,7 +2033,7 @@ function renderEventList(): void {
     header.className = 'event-list-item-header';
     const titleEl = createElement('div');
     titleEl.className = 'event-list-item-title';
-    titleEl.textContent = event.name;
+    titleEl.textContent = `${index + 1}. ${event.name}`;
     header.appendChild(titleEl);
     if (startDate) {
       const dateEl = createElement('div');
@@ -2275,11 +2314,6 @@ document.querySelectorAll('.filter-mode-btn').forEach((btn) => {
     fetchEventList();
   });
 });
-
-// Refresh button
-if (refreshEventListBtn) {
-  refreshEventListBtn.addEventListener('click', fetchEventList);
-}
 
 // Event List Settings listeners
 if (autoSwitchTabSetting) {
@@ -2614,7 +2648,7 @@ if (nextEventBtn) {
   nextEventBtn.addEventListener('click', () => {
     const currentIndex = getCurrentEventIndex();
     const cache = getEventListCache();
-    if (currentIndex < cache.length - 1) {
+    if (currentIndex >= 0 && currentIndex < cache.length - 1) {
       navigateToEventByIndex(currentIndex + 1);
     }
   });

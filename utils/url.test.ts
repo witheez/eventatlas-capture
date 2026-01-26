@@ -2,7 +2,7 @@
  * Tests for utils/url.ts
  */
 import { describe, it, expect } from 'vitest';
-import { fixUrl, normalizeUrl, getDomain } from './url';
+import { fixUrl, normalizeUrl, getDomain, hostsAreRelated, urlsMatchFlexible } from './url';
 
 describe('fixUrl', () => {
   it('should return empty string for empty input', () => {
@@ -113,5 +113,70 @@ describe('getDomain', () => {
 
   it('should handle localhost (hostname excludes port)', () => {
     expect(getDomain('http://localhost:3000/api')).toBe('localhost');
+  });
+});
+
+describe('hostsAreRelated', () => {
+  it('returns true for identical hosts', () => {
+    expect(hostsAreRelated('example.com', 'example.com')).toBe(true);
+  });
+
+  it('returns true when one is subdomain of other', () => {
+    expect(hostsAreRelated('kh.checkpointspot.asia', 'checkpointspot.asia')).toBe(true);
+    expect(hostsAreRelated('checkpointspot.asia', 'kh.checkpointspot.asia')).toBe(true);
+    expect(hostsAreRelated('sub.domain.example.com', 'example.com')).toBe(true);
+  });
+
+  it('returns false for unrelated hosts', () => {
+    expect(hostsAreRelated('checkpointspot.asia', 'checkpointspot.co.uk')).toBe(false);
+    expect(hostsAreRelated('example.com', 'other.com')).toBe(false);
+    expect(hostsAreRelated('myexample.com', 'example.com')).toBe(false);
+  });
+});
+
+describe('urlsMatchFlexible', () => {
+  it('matches URLs with subdomain variations', () => {
+    expect(
+      urlsMatchFlexible(
+        'https://kh.checkpointspot.asia/event/sihanoukvillehm26',
+        'https://checkpointspot.asia/event/sihanoukvillehm26'
+      )
+    ).toBe(true);
+  });
+
+  it('matches identical URLs', () => {
+    expect(urlsMatchFlexible('https://example.com/path', 'https://example.com/path')).toBe(true);
+  });
+
+  it('rejects different paths', () => {
+    expect(
+      urlsMatchFlexible(
+        'https://kh.checkpointspot.asia/event/different',
+        'https://checkpointspot.asia/event/other'
+      )
+    ).toBe(false);
+  });
+
+  it('rejects different domains', () => {
+    expect(
+      urlsMatchFlexible(
+        'https://checkpointspot.asia/event/x',
+        'https://checkpointspot.co.uk/event/x'
+      )
+    ).toBe(false);
+  });
+
+  it('handles www. prefix correctly', () => {
+    expect(urlsMatchFlexible('https://www.example.com/path', 'https://example.com/path')).toBe(
+      true
+    );
+  });
+
+  it('handles trailing slashes correctly', () => {
+    expect(urlsMatchFlexible('https://example.com/path/', 'https://example.com/path')).toBe(true);
+  });
+
+  it('returns false for invalid URLs', () => {
+    expect(urlsMatchFlexible('not-a-url', 'https://example.com')).toBe(false);
   });
 });

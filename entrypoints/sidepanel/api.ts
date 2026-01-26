@@ -5,7 +5,7 @@
  * All API calls go through the centralized apiRequest() function.
  */
 
-import { normalizeUrl } from './utils';
+import { normalizeUrl, urlsMatchFlexible } from './utils';
 
 // Storage key for sync data (must match sidepanel.js)
 const SYNC_DATA_KEY = 'eventatlas_sync_data';
@@ -37,6 +37,7 @@ interface ApiResponse<T = unknown> {
 export interface SyncEvent {
   id: number;
   source_url_normalized: string;
+  source_url?: string;
   title?: string;
   name?: string;
 }
@@ -75,6 +76,7 @@ export interface LookupEvent {
 
 export interface OrganizerLink {
   url_normalized: string;
+  url?: string;
   id: number;
 }
 
@@ -87,6 +89,7 @@ export interface SyncData {
 export interface EventMatch {
   match_type: 'event';
   event: LookupEvent;
+  source: 'cache' | 'api';
 }
 
 export interface LinkDiscoveryMatch {
@@ -278,18 +281,28 @@ async function getLocalMatch(url: string): Promise<EventMatch | LinkDiscoveryMat
 
     const normalizedUrl = normalizeUrl(url);
 
-    // Check events - API returns source_url_normalized
+    // Check events - use flexible matching to handle subdomain variations
     // Note: Local sync data only has basic SyncEvent fields, cast to LookupEvent
     const events = syncData.events || [];
     for (const event of events) {
+      // Use flexible matching first (handles subdomain variations)
+      if (event.source_url && urlsMatchFlexible(event.source_url, url)) {
+        return { match_type: 'event', event: event as LookupEvent, source: 'cache' };
+      }
+      // Fallback to normalized comparison for backward compatibility
       if (event.source_url_normalized === normalizedUrl) {
-        return { match_type: 'event', event: event as LookupEvent };
+        return { match_type: 'event', event: event as LookupEvent, source: 'cache' };
       }
     }
 
     // Check organizer links - API returns url_normalized
     const organizerLinks = syncData.organizerLinks || [];
     for (const link of organizerLinks) {
+      // Use flexible matching first (handles subdomain variations)
+      if (link.url && urlsMatchFlexible(link.url, url)) {
+        return { match_type: 'link_discovery', organizer_link: link };
+      }
+      // Fallback to normalized comparison for backward compatibility
       if (link.url_normalized === normalizedUrl) {
         return { match_type: 'link_discovery', organizer_link: link };
       }
@@ -304,18 +317,56 @@ async function getLocalMatch(url: string): Promise<EventMatch | LinkDiscoveryMat
 
 /**
  * Lookup URL via API (real-time) or local sync data
- * Combines local and remote lookups based on sync mode
+ *
+ * Flow:
+ * 1. Check local cache with flexible subdomain matching
+ * 2. If local event match found → fetch fresh data by ID (fast, no URL re-matching)
+ * 3. If no local match → call backend lookup for newly added events
+ *
+ * This keeps the extension snappy by using cached IDs and reduces
+ * dependency on API calls while still catching new events.
  */
 export async function lookupUrl(url: string, settings: ApiSettings): Promise<LookupResult> {
-  // First check local sync data
+  // First check local sync data using flexible subdomain matching
   const local = await getLocalMatch(url);
 
-  // If sync mode is bulk only, return local match
+  // If sync mode is bulk only, return local match without API calls
   if (settings.syncMode === 'bulk_only') return local;
 
-  // Otherwise, do real-time lookup
+  // If no API credentials, return local match
   if (!settings.apiUrl || !settings.apiToken) return local;
 
+  // If we have a local event match with an ID, fetch fresh data by ID
+  // This is fast and avoids URL re-matching on the backend
+  if (local?.match_type === 'event' && local.event?.id) {
+    const freshResult = await apiRequest<{ event: LookupEvent }>(
+      `/api/extension/events/${local.event.id}`,
+      {
+        apiUrl: settings.apiUrl,
+        apiToken: settings.apiToken,
+      }
+    );
+
+    if (freshResult.ok && freshResult.data?.event) {
+      return {
+        match_type: 'event',
+        event: freshResult.data.event,
+        source: 'api',
+      };
+    }
+
+    // If fresh fetch fails, fall back to local cached data
+    console.warn('[EventAtlas] Fresh fetch failed, using cached data');
+    return { ...local, source: 'cache' };
+  }
+
+  // If we have a local link_discovery match, return it
+  // (Link discovery data doesn't need frequent refreshing)
+  if (local?.match_type === 'link_discovery') {
+    return local;
+  }
+
+  // No local match - check backend for newly added events not yet synced
   const result = await apiRequest<LookupResult>('/api/extension/lookup', {
     apiUrl: settings.apiUrl,
     apiToken: settings.apiToken,
@@ -324,7 +375,12 @@ export async function lookupUrl(url: string, settings: ApiSettings): Promise<Loo
 
   if (!result.ok) {
     console.error('[EventAtlas] Lookup error:', result.error);
-    return local;
+    return local; // Return local (which is null) on error
+  }
+
+  // If backend returns an event match, mark it as from API
+  if (result.data && result.data.match_type === 'event') {
+    return { ...result.data, source: 'api' };
   }
 
   return result.data;
@@ -518,6 +574,7 @@ export interface EventListEvent {
   id: number;
   name: string;
   start_datetime?: string;
+  last_scraped_at?: string;
   primary_url?: string;
   primary_link_id?: number;
   event_type?: string;

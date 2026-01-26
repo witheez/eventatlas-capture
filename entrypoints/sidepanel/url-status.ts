@@ -84,7 +84,9 @@ interface UrlStatusElements {
 
 interface UrlStatusCallbacks {
   showToast?: ((message: string, type?: string) => void) | null;
-  showEventEditor?: ((event: { id: number; title?: string; name?: string }) => void) | null;
+  showEventEditor?:
+    | ((event: { id: number; title?: string; name?: string; source?: 'cache' | 'api' }) => void)
+    | null;
   hideEventEditor?: (() => void) | null;
   updateBundleUIVisibility?: ((visible: boolean) => void) | null;
   updateCaptureButtonsVisibility?: (() => void) | null;
@@ -369,7 +371,12 @@ export async function updateUrlStatus(): Promise<void> {
         updatePageInfoBadge('event', 'EventAtlas Event', '\u2713');
         updateStatusViewLink(result.event.id);
         updateBundleUIVisibility(true);
-        callbacks.showEventEditor?.(result.event as { id: number; title?: string; name?: string });
+        callbacks.showEventEditor?.({ ...result.event, source: result.source } as {
+          id: number;
+          title?: string;
+          name?: string;
+          source?: 'cache' | 'api';
+        });
         hideLinkDiscoveryView();
       } else {
         updatePageInfoBadge('no-match', 'EventAtlas Page', '\u25CB');
@@ -404,7 +411,12 @@ export async function updateUrlStatus(): Promise<void> {
       updatePageInfoBadge('event', 'Known Event', '\u2713');
       updateStatusViewLink(result.event?.id);
       updateBundleUIVisibility(true);
-      callbacks.showEventEditor?.(result.event as { id: number; title?: string; name?: string });
+      callbacks.showEventEditor?.({ ...result.event, source: result.source } as {
+        id: number;
+        title?: string;
+        name?: string;
+        source?: 'cache' | 'api';
+      });
       hideLinkDiscoveryView();
     } else if (result.match_type === 'link_discovery' && 'link_discovery' in result) {
       updatePageInfoBadge('link-discovery', 'Discovery', '\u2295');

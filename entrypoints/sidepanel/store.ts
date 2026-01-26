@@ -20,6 +20,7 @@ export interface EventListItem {
   primary_url?: string;
   primary_link_id?: number;
   start_datetime?: string;
+  last_scraped_at?: string;
   event_type?: { name: string };
   tags?: Array<{ name: string }>;
   distances?: Array<{ value: number; label: string }>;
