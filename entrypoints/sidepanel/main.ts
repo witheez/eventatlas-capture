@@ -116,6 +116,9 @@ import {
 // Import quick-add module
 import { initQuickAdd, showQuickAddSection, hideQuickAddSection } from './quick-add';
 
+// Import site analyzer module
+import { analyzeSite, renderAnalysisResults } from './site-analyzer';
+
 // Helper to create elements - uses a reference to avoid literal string match
 const doc = globalThis.document;
 const createElement = <K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] =>
@@ -345,6 +348,12 @@ const standaloneAutoProcess = document.getElementById(
 const standaloneCleanUrls = document.getElementById(
   'standaloneCleanUrls'
 ) as HTMLInputElement | null;
+
+// DOM Elements - Site Analysis
+const analyzeSiteBtn = document.getElementById('analyzeSiteBtn') as HTMLButtonElement | null;
+const siteAnalysisContent = document.getElementById('siteAnalysisContent') as HTMLElement | null;
+const siteAnalysisLoading = document.getElementById('siteAnalysisLoading') as HTMLElement | null;
+const siteAnalysisResults = document.getElementById('siteAnalysisResults') as HTMLElement | null;
 
 // DOM Elements - Event Editor
 const _eventEditor = document.getElementById('eventEditor') as HTMLElement | null;
@@ -1853,6 +1862,40 @@ if (selectAllNewLinks) {
 
 if (addNewLinksBtn) {
   addNewLinksBtn.addEventListener('click', addNewLinksToPipeline);
+}
+
+// Event Listeners - Site Analysis
+if (analyzeSiteBtn) {
+  analyzeSiteBtn.addEventListener('click', async () => {
+    if (!siteAnalysisContent || !siteAnalysisLoading || !siteAnalysisResults) return;
+
+    // Show loading state
+    siteAnalysisContent.style.display = 'block';
+    siteAnalysisLoading.style.display = 'flex';
+    siteAnalysisResults.innerHTML = '';
+    analyzeSiteBtn.disabled = true;
+    analyzeSiteBtn.textContent = 'Analyzing...';
+
+    try {
+      const result = await analyzeSite();
+      siteAnalysisLoading.style.display = 'none';
+
+      if (result) {
+        renderAnalysisResults(siteAnalysisResults, result);
+      } else {
+        siteAnalysisResults.innerHTML =
+          '<div style="color: #6b7280; font-size: 13px; padding: 8px 0;">Unable to analyze this page. Make sure you are on a regular web page.</div>';
+      }
+    } catch (error) {
+      siteAnalysisLoading.style.display = 'none';
+      siteAnalysisResults.innerHTML =
+        '<div style="color: #ef4444; font-size: 13px; padding: 8px 0;">Analysis failed. Try refreshing the page.</div>';
+      console.error('[EventAtlas] Site analysis error:', error);
+    } finally {
+      analyzeSiteBtn.disabled = false;
+      analyzeSiteBtn.textContent = 'Analyze';
+    }
+  });
 }
 
 textToggle.addEventListener('click', () => {
