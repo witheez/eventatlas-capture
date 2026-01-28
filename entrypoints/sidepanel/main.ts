@@ -335,6 +335,7 @@ const inheritedProcessorName = document.getElementById(
 ) as HTMLElement | null;
 const blockedParentName = document.getElementById('blockedParentName') as HTMLElement | null;
 const viewParentLink = document.getElementById('viewParentLink') as HTMLAnchorElement | null;
+const runScraperBtn = document.getElementById('runScraperBtn') as HTMLButtonElement | null;
 const processorConfigSelect = document.getElementById(
   'processorConfigSelect'
 ) as HTMLSelectElement | null;
@@ -3137,6 +3138,7 @@ async function init(): Promise<void> {
       inheritedProcessorName,
       blockedParentName,
       viewParentLink,
+      runScraperBtn,
       processorConfigSelect,
       addAsChildBtn,
       addStandaloneBtn,

@@ -3303,6 +3303,45 @@ body.has-upload-queue {
   cursor: not-allowed;
 }
 
+/* Blocked actions layout */
+.quick-add-section .blocked-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Run Scraper button */
+.quick-add-section .run-scraper-btn {
+  width: 100%;
+  padding: 10px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.quick-add-section .run-scraper-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.quick-add-section .run-scraper-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quick-add-section .run-scraper-btn.success {
+  background: #16a34a;
+}
+
+.quick-add-section .run-scraper-btn.error {
+  background: #dc2626;
+}
+
 /* View link */
 .quick-add-section .view-link {
   display: block;
