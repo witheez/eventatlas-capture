@@ -98,8 +98,29 @@ export interface LinkDiscoveryMatch {
   link_discovery?: LinkDiscoveryData;
 }
 
+export interface ContentItemProcessingError {
+  id: number;
+  error_type: string;
+  message: string;
+  occurred_at: string;
+  processor_name?: string;
+}
+
+export interface ContentItemDetails {
+  id: number;
+  url: string;
+  status: string;
+  organizer_name?: string;
+  processor_name?: string;
+  processed_at?: string;
+  created_at?: string;
+  processing_errors: ContentItemProcessingError[];
+  admin_url?: string;
+}
+
 export interface ContentItemMatch {
   match_type: 'content_item';
+  content_item?: ContentItemDetails;
 }
 
 export interface NoMatch {
