@@ -349,11 +349,15 @@ const standaloneCleanUrls = document.getElementById(
   'standaloneCleanUrls'
 ) as HTMLInputElement | null;
 
-// DOM Elements - Site Analysis
+// DOM Elements - Site Analysis View
+const siteAnalysisView = document.getElementById('siteAnalysisView') as HTMLElement | null;
 const analyzeSiteBtn = document.getElementById('analyzeSiteBtn') as HTMLButtonElement | null;
 const siteAnalysisContent = document.getElementById('siteAnalysisContent') as HTMLElement | null;
 const siteAnalysisLoading = document.getElementById('siteAnalysisLoading') as HTMLElement | null;
 const siteAnalysisResults = document.getElementById('siteAnalysisResults') as HTMLElement | null;
+
+// DOM Elements - Auto-analyze setting
+const autoAnalyzeSetting = document.getElementById('autoAnalyzeSetting') as HTMLInputElement | null;
 
 // DOM Elements - Event Editor
 const _eventEditor = document.getElementById('eventEditor') as HTMLElement | null;
@@ -1865,36 +1869,67 @@ if (addNewLinksBtn) {
 }
 
 // Event Listeners - Site Analysis
-if (analyzeSiteBtn) {
-  analyzeSiteBtn.addEventListener('click', async () => {
-    if (!siteAnalysisContent || !siteAnalysisLoading || !siteAnalysisResults) return;
 
-    // Show loading state
-    siteAnalysisContent.style.display = 'block';
-    siteAnalysisLoading.style.display = 'flex';
-    siteAnalysisResults.innerHTML = '';
+/**
+ * Highlight the Site Analysis tab to indicate results are available
+ */
+function setSiteAnalysisTabHighlight(hasData: boolean): void {
+  if (!tabNavigation) return;
+  const siteAnalysisTabBtn = tabNavigation.querySelector('.tab-btn[data-tab="site-analysis"]');
+  if (siteAnalysisTabBtn) {
+    siteAnalysisTabBtn.classList.toggle('has-data', hasData);
+  }
+}
+
+/**
+ * Run site analysis and render results (shared by manual and auto-analyze)
+ */
+async function runSiteAnalysis(): Promise<void> {
+  if (!siteAnalysisContent || !siteAnalysisLoading || !siteAnalysisResults) return;
+
+  // Show loading state
+  siteAnalysisContent.style.display = 'block';
+  siteAnalysisLoading.style.display = 'flex';
+  siteAnalysisResults.innerHTML = '';
+  if (analyzeSiteBtn) {
     analyzeSiteBtn.disabled = true;
     analyzeSiteBtn.textContent = 'Analyzing...';
+  }
 
-    try {
-      const result = await analyzeSite();
-      siteAnalysisLoading.style.display = 'none';
+  try {
+    const result = await analyzeSite();
+    siteAnalysisLoading.style.display = 'none';
 
-      if (result) {
-        renderAnalysisResults(siteAnalysisResults, result);
-      } else {
-        siteAnalysisResults.innerHTML =
-          '<div style="color: #6b7280; font-size: 13px; padding: 8px 0;">Unable to analyze this page. Make sure you are on a regular web page.</div>';
-      }
-    } catch (error) {
-      siteAnalysisLoading.style.display = 'none';
+    if (result) {
+      renderAnalysisResults(siteAnalysisResults, result);
+      setSiteAnalysisTabHighlight(true);
+    } else {
       siteAnalysisResults.innerHTML =
-        '<div style="color: #ef4444; font-size: 13px; padding: 8px 0;">Analysis failed. Try refreshing the page.</div>';
-      console.error('[EventAtlas] Site analysis error:', error);
-    } finally {
+        '<div style="color: #6b7280; font-size: 13px; padding: 8px 0;">Unable to analyze this page. Make sure you are on a regular web page.</div>';
+    }
+  } catch (error) {
+    siteAnalysisLoading.style.display = 'none';
+    siteAnalysisResults.innerHTML =
+      '<div style="color: #ef4444; font-size: 13px; padding: 8px 0;">Analysis failed. Try refreshing the page.</div>';
+    console.error('[EventAtlas] Site analysis error:', error);
+  } finally {
+    if (analyzeSiteBtn) {
       analyzeSiteBtn.disabled = false;
       analyzeSiteBtn.textContent = 'Analyze';
     }
+  }
+}
+
+if (analyzeSiteBtn) {
+  analyzeSiteBtn.addEventListener('click', runSiteAnalysis);
+}
+
+// Wire up auto-analyze setting
+if (autoAnalyzeSetting) {
+  autoAnalyzeSetting.addEventListener('change', async () => {
+    const settings = getSettings();
+    settings.autoAnalyzeSites = autoAnalyzeSetting.checked;
+    await saveToStorage();
   });
 }
 
@@ -1959,6 +1994,10 @@ chrome.tabs.onActivated.addListener(async (_activeInfo) => {
   await updateTabInfo();
   hideErrorMessage();
   hideDuplicateDialog();
+  // Clear site analysis data when switching browser tabs
+  setSiteAnalysisTabHighlight(false);
+  if (siteAnalysisResults) siteAnalysisResults.innerHTML = '';
+  if (siteAnalysisContent) siteAnalysisContent.style.display = 'none';
 });
 
 // Listen for tab URL/title changes
@@ -1969,6 +2008,19 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, _tab) => {
       await updateTabInfo();
       hideErrorMessage();
       hideDuplicateDialog();
+
+      // Clear site analysis tab highlight and results on URL change
+      if (changeInfo.url) {
+        setSiteAnalysisTabHighlight(false);
+        if (siteAnalysisResults) siteAnalysisResults.innerHTML = '';
+        if (siteAnalysisContent) siteAnalysisContent.style.display = 'none';
+
+        // Auto-analyze if the setting is enabled
+        const settings = getSettings();
+        if (settings.autoAnalyzeSites) {
+          runSiteAnalysis();
+        }
+      }
     }
   }
 });
@@ -1978,9 +2030,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, _tab) => {
 // ========================================
 
 /**
- * Switch between tabs (Current/Event List)
+ * Switch between tabs (Current/Event List/Site Analysis)
  */
-function switchMainTab(tabName: 'current' | 'event-list'): void {
+function switchMainTab(tabName: 'current' | 'event-list' | 'site-analysis'): void {
   setActiveTab(tabName);
 
   // Update tab buttons
@@ -1993,13 +2045,22 @@ function switchMainTab(tabName: 'current' | 'event-list'): void {
   // Toggle views
   if (bundlesView) bundlesView.style.display = tabName === 'current' ? 'block' : 'none';
   if (eventListView) eventListView.style.display = tabName === 'event-list' ? 'block' : 'none';
+  if (siteAnalysisView)
+    siteAnalysisView.style.display = tabName === 'site-analysis' ? 'block' : 'none';
 
-  // Hide back nav when on event list
-  if (backNav) backNav.classList.remove('visible');
+  // Hide back nav when not on current tab
+  if (tabName !== 'current' && backNav) backNav.classList.remove('visible');
 
   // Fetch event list if switching to it and cache is empty/stale
   if (tabName === 'event-list' && getEventListCache().length === 0) {
     fetchEventList();
+  }
+
+  // Auto-trigger site analysis if switching to it and no results are showing
+  if (tabName === 'site-analysis') {
+    if (siteAnalysisResults && siteAnalysisResults.innerHTML === '') {
+      runSiteAnalysis();
+    }
   }
 }
 
@@ -2315,7 +2376,7 @@ function setupEventListRefresh(): void {
 if (tabNavigation) {
   tabNavigation.querySelectorAll('.tab-btn').forEach((btn) => {
     btn.addEventListener('click', () =>
-      switchMainTab((btn as HTMLElement).dataset.tab as 'current' | 'event-list')
+      switchMainTab((btn as HTMLElement).dataset.tab as 'current' | 'event-list' | 'site-analysis')
     );
   });
 }
@@ -3122,6 +3183,9 @@ async function init(): Promise<void> {
   apiTokenSetting.value = settings.apiToken || '';
   syncModeSetting.value = settings.syncMode || 'both';
   screenshotUploadTimingSetting.value = settings.screenshotUploadTiming || 'immediate';
+
+  // Apply Site Analysis settings to UI
+  if (autoAnalyzeSetting) autoAnalyzeSetting.checked = settings.autoAnalyzeSites === true;
 
   // Apply Event List settings to UI
   if (autoSwitchTabSetting) autoSwitchTabSetting.checked = settings.autoSwitchTab !== false;

@@ -5,14 +5,31 @@
  * Analyzes the DOM for anti-bot signatures, technology indicators,
  * and data delivery patterns. Bridges with the MAIN world script
  * and communicates results to the side panel.
+ *
+ * NOT auto-injected: registration is 'runtime' so this only runs
+ * when explicitly injected via chrome.scripting.executeScript().
  */
+
+import type {
+  AntiBotDetection,
+  TechDetection,
+  DataDeliveryAnalysis,
+} from './sidepanel/site-analyzer-types';
+import { SITE_ANALYZER_CHANNEL } from './sidepanel/site-analyzer-types';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_idle',
+  registration: 'runtime',
 
   main() {
-    const CHANNEL = 'eventatlas-site-analyzer';
+    const CHANNEL = SITE_ANALYZER_CHANNEL;
+
+    // Guard against double-injection
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((window as any).__EA_SITE_ANALYZER_COLLECTOR__) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__EA_SITE_ANALYZER_COLLECTOR__ = true;
 
     // ========================================================================
     // Anti-Bot Detection Signatures
@@ -299,15 +316,9 @@ export default defineContentScript({
     // Technology Detection
     // ========================================================================
 
-    interface TechDetection {
-      name: string;
-      category: 'framework' | 'cms' | 'ecommerce' | 'analytics' | 'hosting';
-      confidence: number;
-      evidence: string;
-    }
-
     function detectTechnologies(): TechDetection[] {
       const detections: TechDetection[] = [];
+      // H3 fix: Read outerHTML once and reuse for all pattern checks
       const html = document.documentElement.outerHTML.substring(0, 100000);
       const metaGenerator =
         document.querySelector('meta[name="generator"]')?.getAttribute('content') || '';
@@ -515,24 +526,9 @@ export default defineContentScript({
     // Data Delivery Analysis
     // ========================================================================
 
-    interface DataDeliveryAnalysis {
-      hasStructuredData: boolean;
-      structuredDataTypes: string[];
-      hasServerRenderedContent: boolean;
-      hasSPAIndicators: boolean;
-      hasAPIDataInPage: boolean;
-      contentSize: {
-        html: number;
-        text: number;
-        ratio: number; // text/html ratio - low = lots of JS/framework overhead
-      };
-      dataDeliveryMethod: 'server-rendered' | 'spa-api' | 'hybrid' | 'unknown';
-      evidence: string[];
-    }
-
     function analyzeDataDelivery(): DataDeliveryAnalysis {
       const evidence: string[] = [];
-      const html = document.documentElement.outerHTML;
+      // H3 fix: Read body text via innerText (no outerHTML needed here)
       const text = document.body?.innerText || '';
 
       // Check structured data
@@ -574,8 +570,9 @@ export default defineContentScript({
         evidence.push(`Found ${jsonScripts.length} embedded JSON data block(s)`);
       }
 
-      // Content ratio analysis
-      const htmlSize = html.length;
+      // H3 fix: Compute HTML size from documentElement.outerHTML length
+      // only once, using the same string for ratio calculation
+      const htmlSize = document.documentElement.outerHTML.length;
       const textSize = text.length;
       const ratio = htmlSize > 0 ? textSize / htmlSize : 0;
 
@@ -655,44 +652,441 @@ export default defineContentScript({
     }
 
     // ========================================================================
-    // Message handling - respond to side panel requests
+    // Pagination Detection
     // ========================================================================
 
-    // Store data received from MAIN world
+    function detectPagination(): {
+      hasNextPrev: boolean;
+      hasLoadMore: boolean;
+      hasInfiniteScroll: boolean;
+      hasPageParams: boolean;
+      patterns: string[];
+    } {
+      const patterns: string[] = [];
+      let hasNextPrev = false;
+      let hasLoadMore = false;
+      let hasInfiniteScroll = false;
+      let hasPageParams = false;
+
+      // Check <link rel="next"> / <link rel="prev"> in head
+      const linkNext = document.querySelector('link[rel="next"]');
+      const linkPrev = document.querySelector('link[rel="prev"]');
+      if (linkNext) {
+        hasNextPrev = true;
+        patterns.push('rel=next link found in head');
+      }
+      if (linkPrev) {
+        hasNextPrev = true;
+        patterns.push('rel=prev link found in head');
+      }
+
+      // Check <a> elements with rel="next"/"prev"
+      const aRelNext = document.querySelector('a[rel="next"]');
+      const aRelPrev = document.querySelector('a[rel="prev"]');
+      if (aRelNext) {
+        hasNextPrev = true;
+        patterns.push('Anchor with rel=next found');
+      }
+      if (aRelPrev) {
+        hasNextPrev = true;
+        patterns.push('Anchor with rel=prev found');
+      }
+
+      // Check for text-based pagination links
+      const allAnchors = document.querySelectorAll('a');
+      const paginationTextPatterns = /^(next|previous|prev|load\s*more|show\s*more|view\s*more)$/i;
+      for (const a of allAnchors) {
+        const text = (a.textContent || '').trim();
+        if (paginationTextPatterns.test(text)) {
+          if (/load\s*more|show\s*more|view\s*more/i.test(text)) {
+            hasLoadMore = true;
+            patterns.push(`Load more button detected ("${text}")`);
+          } else {
+            hasNextPrev = true;
+            patterns.push(`Pagination link detected ("${text}")`);
+          }
+          break; // Only report once
+        }
+      }
+
+      // Check for page number links (buttons/anchors with just numbers)
+      const pageNumberLinks = document.querySelectorAll(
+        'nav a, .pagination a, [class*="pager"] a, [class*="pagina"] a'
+      );
+      let pageNumberCount = 0;
+      for (const link of pageNumberLinks) {
+        const text = (link.textContent || '').trim();
+        if (/^\d+$/.test(text)) pageNumberCount++;
+      }
+      if (pageNumberCount >= 3) {
+        hasNextPrev = true;
+        patterns.push(`Page number links detected (${pageNumberCount} found)`);
+      }
+
+      // Check URL patterns
+      const currentUrl = window.location.href;
+      if (/[?&]page=/.test(currentUrl)) {
+        hasPageParams = true;
+        patterns.push('?page= parameter in URL');
+      }
+      if (/[?&]offset=/.test(currentUrl)) {
+        hasPageParams = true;
+        patterns.push('?offset= parameter in URL');
+      }
+      if (/[?&]cursor=/.test(currentUrl)) {
+        hasPageParams = true;
+        patterns.push('?cursor= parameter in URL');
+      }
+      if (/\/page\/\d+/.test(currentUrl)) {
+        hasPageParams = true;
+        patterns.push('/page/ pattern in URL');
+      }
+
+      // Check for infinite scroll indicators
+      const infiniteScrollSelectors = [
+        '[data-infinite-scroll]',
+        '[data-next-page]',
+        '.infinite-scroll',
+        '.infinite-scroll-component',
+        '[class*="InfiniteScroll"]',
+        '[class*="infinite-loader"]',
+        '.waypoint',
+      ];
+      for (const selector of infiniteScrollSelectors) {
+        if (document.querySelector(selector)) {
+          hasInfiniteScroll = true;
+          patterns.push(`Infinite scroll element detected (${selector})`);
+          break;
+        }
+      }
+
+      // Check for load more buttons (by class/id)
+      const loadMoreSelectors = [
+        '[class*="load-more"]',
+        '[class*="loadMore"]',
+        '[id*="load-more"]',
+        '[id*="loadMore"]',
+        'button[class*="show-more"]',
+        'button[class*="showMore"]',
+      ];
+      for (const selector of loadMoreSelectors) {
+        if (document.querySelector(selector)) {
+          hasLoadMore = true;
+          patterns.push(`Load more element detected (${selector})`);
+          break;
+        }
+      }
+
+      return { hasNextPrev, hasLoadMore, hasInfiniteScroll, hasPageParams, patterns };
+    }
+
+    // ========================================================================
+    // Authentication Detection
+    // ========================================================================
+
+    function detectAuthentication(): {
+      hasLoginForm: boolean;
+      hasPaywall: boolean;
+      hasOAuth: boolean;
+      indicators: string[];
+    } {
+      const indicators: string[] = [];
+      let hasLoginForm = false;
+      let hasPaywall = false;
+      let hasOAuth = false;
+
+      // Check for login forms
+      const forms = document.querySelectorAll('form');
+      for (const form of forms) {
+        const hasPassword = form.querySelector('input[type="password"]');
+        const action = (form.getAttribute('action') || '').toLowerCase();
+        const actionMatches = /login|signin|sign-in|auth|authenticate/.test(action);
+
+        if (hasPassword) {
+          hasLoginForm = true;
+          indicators.push('Login form detected (password field found)');
+          break;
+        }
+        if (actionMatches) {
+          hasLoginForm = true;
+          indicators.push(`Login form detected (action: ${action.substring(0, 60)})`);
+          break;
+        }
+      }
+
+      // Check for paywall elements
+      const paywallSelectors = [
+        '[class*="paywall"]',
+        '[id*="paywall"]',
+        '[class*="subscribe-wall"]',
+        '[class*="premium-content"]',
+        '[class*="login-wall"]',
+        '[class*="loginWall"]',
+        '[class*="premium-gate"]',
+        '[class*="subscriber-only"]',
+        '[data-paywall]',
+      ];
+      for (const selector of paywallSelectors) {
+        const el = document.querySelector(selector);
+        if (el) {
+          hasPaywall = true;
+          indicators.push(`Paywall element found (${selector})`);
+          break;
+        }
+      }
+
+      // Check for auth-related meta tags
+      const robotsMeta = document.querySelector('meta[name="robots"]');
+      if (robotsMeta) {
+        const content = (robotsMeta.getAttribute('content') || '').toLowerCase();
+        if (content.includes('noindex')) {
+          // Only flag if the page seems to have content (not just a blank page)
+          const bodyText = (document.body?.innerText || '').length;
+          if (bodyText > 200) {
+            indicators.push('noindex meta tag on content page (possible auth-gated content)');
+          }
+        }
+      }
+
+      // Check for OAuth buttons
+      const oauthProviders = [
+        { pattern: /accounts\.google\.com|googleapis\.com\/auth/, name: 'Google' },
+        { pattern: /facebook\.com\/v\d+|facebook\.com\/dialog\/oauth/, name: 'Facebook' },
+        { pattern: /github\.com\/login\/oauth/, name: 'GitHub' },
+        { pattern: /api\.twitter\.com\/oauth|twitter\.com\/i\/oauth/, name: 'Twitter' },
+        { pattern: /login\.microsoftonline\.com|microsoft\.com\/oauth/, name: 'Microsoft' },
+        { pattern: /appleid\.apple\.com\/auth/, name: 'Apple' },
+      ];
+
+      const allLinks = document.querySelectorAll('a[href], button');
+      for (const el of allLinks) {
+        const href = el.getAttribute('href') || '';
+        const text = (el.textContent || '').toLowerCase();
+        for (const provider of oauthProviders) {
+          if (
+            provider.pattern.test(href) ||
+            (text.includes('sign in with') && text.includes(provider.name.toLowerCase()))
+          ) {
+            hasOAuth = true;
+            indicators.push(`OAuth detected: ${provider.name}`);
+            break;
+          }
+        }
+        if (hasOAuth) break;
+      }
+
+      return { hasLoginForm, hasPaywall, hasOAuth, indicators };
+    }
+
+    // ========================================================================
+    // Cookie Analysis
+    // ========================================================================
+
+    function analyzeCookies(): {
+      total: number;
+      categories: Array<{ category: string; names: string[]; count: number }>;
+      hasSessionCookies: boolean;
+      hasAuthCookies: boolean;
+      note: string;
+    } {
+      const cookieString = document.cookie;
+      if (!cookieString.trim()) {
+        return {
+          total: 0,
+          categories: [],
+          hasSessionCookies: false,
+          hasAuthCookies: false,
+          note: 'HttpOnly cookies are not visible to JavaScript',
+        };
+      }
+
+      const cookies = cookieString
+        .split(';')
+        .map((c) => c.trim().split('=')[0].trim())
+        .filter(Boolean);
+      const total = cookies.length;
+
+      const categoryDefs: Array<{
+        category: string;
+        patterns: RegExp[];
+      }> = [
+        {
+          category: 'Session',
+          patterns: [
+            /^PHPSESSID$/i,
+            /^JSESSIONID$/i,
+            /^ASP\.NET_SessionId$/i,
+            /^connect\.sid$/i,
+            /^session/i,
+            /^sid$/i,
+            /^sess_/i,
+          ],
+        },
+        {
+          category: 'Auth',
+          patterns: [
+            /token/i,
+            /^jwt$/i,
+            /^auth/i,
+            /^access_token$/i,
+            /^refresh_token$/i,
+            /^remember/i,
+            /^login/i,
+            /^user_session/i,
+          ],
+        },
+        {
+          category: 'Consent',
+          patterns: [
+            /cookie.?consent/i,
+            /gdpr/i,
+            /^cc_/i,
+            /^cookielaw/i,
+            /^CookieConsent/i,
+            /^euconsent/i,
+          ],
+        },
+        {
+          category: 'Tracking',
+          patterns: [
+            /^_ga$/i,
+            /^_gid$/i,
+            /^_gat$/i,
+            /^_fbp$/i,
+            /^_fbc$/i,
+            /^_gcl_/i,
+            /^_hjid$/i,
+            /^_clck$/i,
+            /^_clsk$/i,
+            /^mp_/i,
+            /^amplitude/i,
+            /^ajs_/i,
+          ],
+        },
+      ];
+
+      const categorized: Array<{ category: string; names: string[]; count: number }> = [];
+      const assignedCookies = new Set<string>();
+
+      for (const def of categoryDefs) {
+        const names: string[] = [];
+        for (const cookie of cookies) {
+          if (assignedCookies.has(cookie)) continue;
+          for (const pattern of def.patterns) {
+            if (pattern.test(cookie)) {
+              names.push(cookie);
+              assignedCookies.add(cookie);
+              break;
+            }
+          }
+        }
+        if (names.length > 0) {
+          categorized.push({ category: def.category, names, count: names.length });
+        }
+      }
+
+      // Other category for unassigned
+      const otherNames = cookies.filter((c) => !assignedCookies.has(c));
+      if (otherNames.length > 0) {
+        categorized.push({ category: 'Other', names: otherNames, count: otherNames.length });
+      }
+
+      const hasSessionCookies = categorized.some((c) => c.category === 'Session');
+      const hasAuthCookies = categorized.some((c) => c.category === 'Auth');
+
+      return {
+        total,
+        categories: categorized,
+        hasSessionCookies,
+        hasAuthCookies,
+        note: 'HttpOnly cookies are not visible to JavaScript',
+      };
+    }
+
+    // ========================================================================
+    // Message handling - respond to side panel requests
+    // H1 fix: Use promise-based approach with request IDs and longer timeout
+    // ========================================================================
+
+    // Store data received from MAIN world, keyed by request ID
+    let pendingRequestId: string | null = null;
     let mainWorldData: {
       interceptedRequests?: unknown;
       windowProperties?: Record<string, string>;
+      rateLimitHeaders?: Array<{ name: string; value: string; source: string }>;
     } = {};
+    let mainWorldResponseCount = 0;
+    let mainWorldResolve: (() => void) | null = null;
 
     // Listen for MAIN world messages
     window.addEventListener('message', (event) => {
       if (event.source !== window) return;
       if (event.data?.channel !== CHANNEL) return;
 
-      if (event.data.action === 'interceptedRequests') {
-        mainWorldData.interceptedRequests = event.data.data;
-      }
-      if (event.data.action === 'windowProperties') {
-        mainWorldData.windowProperties = event.data.data;
+      // Only accept responses matching our current request ID
+      if (pendingRequestId && event.data.requestId === pendingRequestId) {
+        if (event.data.action === 'interceptedRequests') {
+          mainWorldData.interceptedRequests = event.data.data;
+          mainWorldResponseCount++;
+        }
+        if (event.data.action === 'windowProperties') {
+          mainWorldData.windowProperties = event.data.data;
+          mainWorldResponseCount++;
+        }
+        if (event.data.action === 'rateLimitHeaders') {
+          mainWorldData.rateLimitHeaders = event.data.data;
+          mainWorldResponseCount++;
+        }
+
+        // Resolve when we have all 3 responses
+        if (mainWorldResponseCount >= 3 && mainWorldResolve) {
+          mainWorldResolve();
+          mainWorldResolve = null;
+        }
       }
     });
+
+    /**
+     * Wait for MAIN world responses with a unique request ID and timeout.
+     * Returns a promise that resolves when both responses arrive or times out.
+     */
+    function waitForMainWorld(requestId: string, timeoutMs: number): Promise<void> {
+      return new Promise<void>((resolve) => {
+        pendingRequestId = requestId;
+        mainWorldData = {};
+        mainWorldResponseCount = 0;
+        mainWorldResolve = resolve;
+
+        // Request data from MAIN world with the request ID
+        window.postMessage({ channel: CHANNEL, action: 'getInterceptedRequests', requestId }, '*');
+        window.postMessage({ channel: CHANNEL, action: 'getWindowProperties', requestId }, '*');
+        window.postMessage({ channel: CHANNEL, action: 'getRateLimitInfo', requestId }, '*');
+
+        // Timeout fallback -- proceed with whatever data we have
+        setTimeout(() => {
+          if (mainWorldResolve) {
+            mainWorldResolve();
+            mainWorldResolve = null;
+          }
+        }, timeoutMs);
+      });
+    }
 
     // Listen for messages from the side panel
     chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       if (request.action === 'analyzeSite') {
-        // Reset main world data collection
-        mainWorldData = {};
+        // Generate a unique request ID to prevent stale data (H1 fix)
+        const requestId = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 
-        // Request data from MAIN world
-        window.postMessage({ channel: CHANNEL, action: 'getInterceptedRequests' }, '*');
-        window.postMessage({ channel: CHANNEL, action: 'getWindowProperties' }, '*');
-
-        // Give MAIN world a moment to respond, then collect everything
-        setTimeout(() => {
-          const antiBotDetections = [...detectAntiBotFromCookies(), ...detectAntiBotFromDOM()];
+        // Wait for MAIN world with 3-second timeout (H1 fix: was 300ms)
+        waitForMainWorld(requestId, 3000).then(() => {
+          const antiBotDetections: AntiBotDetection[] = [
+            ...detectAntiBotFromCookies(),
+            ...detectAntiBotFromDOM(),
+          ];
 
           // Deduplicate by name (keep highest confidence)
-          const deduped = new Map<string, DetectionSignature>();
+          const deduped = new Map<string, AntiBotDetection>();
           for (const d of antiBotDetections) {
             const existing = deduped.get(d.name);
             if (!existing || d.confidence > existing.confidence) {
@@ -703,6 +1097,15 @@ export default defineContentScript({
           const technologies = detectTechnologies();
           const dataDelivery = analyzeDataDelivery();
           const headers = analyzeHeaders();
+          const pagination = detectPagination();
+          const authentication = detectAuthentication();
+          const cookies = analyzeCookies();
+
+          const rateLimitData = mainWorldData.rateLimitHeaders || [];
+          const rateLimiting = {
+            detected: rateLimitData.length > 0,
+            headers: rateLimitData,
+          };
 
           sendResponse({
             antiBotDetections: Array.from(deduped.values()),
@@ -714,10 +1117,15 @@ export default defineContentScript({
               endpoints: [],
             },
             windowProperties: mainWorldData.windowProperties || {},
+            pagination,
+            authentication,
+            rateLimiting,
+            robotsTxt: null, // Fetched by side panel
+            cookies,
             analyzedAt: new Date().toISOString(),
             url: window.location.href,
           });
-        }, 300);
+        });
 
         return true; // Keep channel open for async response
       }

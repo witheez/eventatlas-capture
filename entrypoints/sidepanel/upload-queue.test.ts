@@ -32,6 +32,7 @@ const mockSettings: Settings = {
   eventListRefreshInterval: 30000,
   distancePresets: [],
   screenshotUploadMode: 'auto',
+  autoAnalyzeSites: false,
 };
 
 describe('Upload Queue Types', () => {

@@ -1220,6 +1220,21 @@ body {
   color: #047857;
 }
 
+.tab-btn.has-data {
+  position: relative;
+}
+
+.tab-btn.has-data::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  background: #6366f1;
+  border-radius: 50%;
+}
+
 /* Tab navigation arrows */
 .tab-nav-arrows {
   display: flex;
@@ -3563,6 +3578,13 @@ body.has-upload-queue {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.sa-endpoint-url:hover {
+  color: #4f46e5;
+  text-decoration: underline;
 }
 
 .sa-endpoint-count {
@@ -3600,6 +3622,31 @@ body.has-upload-queue {
 
 .sa-evidence.sa-positive::before {
   color: #059669;
+}
+
+.sa-evidence.sa-negative {
+  color: #dc2626;
+}
+
+.sa-evidence.sa-negative::before {
+  color: #dc2626;
+}
+
+.sa-evidence.sa-warning {
+  color: #d97706;
+}
+
+.sa-evidence.sa-warning::before {
+  color: #d97706;
+}
+
+.sa-evidence.sa-empty {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.sa-evidence.sa-empty::before {
+  content: none;
 }
 
 /* Recommendations */
@@ -3649,5 +3696,29 @@ body.has-upload-queue {
   position: absolute;
   left: 0;
   color: #059669;
+}
+
+.sa-reload-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-top: 12px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #92400e;
+  line-height: 1.4;
+}
+
+.sa-reload-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.sa-reload-text {
+  flex: 1;
 }
 

@@ -22,6 +22,7 @@ export interface Settings {
   eventListRefreshInterval: number;
   distancePresets: DistancePreset[];
   screenshotUploadMode: string;
+  autoAnalyzeSites: boolean;
   customDistancePresets?: string;
 }
 

@@ -4,6 +4,9 @@
  * Runs in the page's JavaScript context to intercept network requests
  * and detect API endpoints. Communicates with the ISOLATED world
  * content script via window.postMessage.
+ *
+ * Auto-injected on every page at document_start to intercept
+ * network requests from the beginning of page load.
  */
 
 export default defineContentScript({
@@ -14,6 +17,12 @@ export default defineContentScript({
   main() {
     const CHANNEL = 'eventatlas-site-analyzer';
 
+    // Guard against double-injection
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((window as any).__EA_SITE_ANALYZER_MAIN__) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__EA_SITE_ANALYZER_MAIN__ = true;
+
     interface InterceptedRequest {
       method: string;
       url: string;
@@ -23,6 +32,46 @@ export default defineContentScript({
 
     const interceptedRequests: InterceptedRequest[] = [];
     const MAX_REQUESTS = 200;
+
+    // Rate limit header tracking
+    interface RateLimitEntry {
+      name: string;
+      value: string;
+      source: string;
+    }
+    const rateLimitHeaders: RateLimitEntry[] = [];
+    const MAX_RATE_LIMIT_ENTRIES = 50;
+    const RATE_LIMIT_HEADER_PATTERNS = [
+      /^x-ratelimit/i,
+      /^ratelimit/i,
+      /^retry-after$/i,
+      /^x-rate-limit/i,
+    ];
+
+    function captureRateLimitHeaders(headers: Headers | string, sourceUrl: string): void {
+      if (rateLimitHeaders.length >= MAX_RATE_LIMIT_ENTRIES) return;
+
+      if (typeof headers === 'string') {
+        // XHR getAllResponseHeaders() returns a string
+        const lines = headers.split('\r\n');
+        for (const line of lines) {
+          const colonIdx = line.indexOf(':');
+          if (colonIdx === -1) continue;
+          const name = line.substring(0, colonIdx).trim();
+          const value = line.substring(colonIdx + 1).trim();
+          if (RATE_LIMIT_HEADER_PATTERNS.some((p) => p.test(name))) {
+            rateLimitHeaders.push({ name, value, source: sourceUrl.substring(0, 120) });
+          }
+        }
+      } else {
+        // Fetch Response.headers
+        headers.forEach((value: string, name: string) => {
+          if (RATE_LIMIT_HEADER_PATTERNS.some((p) => p.test(name))) {
+            rateLimitHeaders.push({ name, value, source: sourceUrl.substring(0, 120) });
+          }
+        });
+      }
+    }
 
     /**
      * Normalize a URL for deduplication (strip query params for grouping)
@@ -121,7 +170,17 @@ export default defineContentScript({
         addRequest({ method, url, type: 'fetch', timestamp: Date.now() });
       }
 
-      return originalFetch.apply(this, args);
+      const fetchUrl = url;
+      return originalFetch.apply(this, args).then((response: Response) => {
+        try {
+          if (fetchUrl) {
+            captureRateLimitHeaders(response.headers, fetchUrl);
+          }
+        } catch {
+          /* skip */
+        }
+        return response;
+      });
     };
 
     // ========================================================================
@@ -153,6 +212,20 @@ export default defineContentScript({
           timestamp: Date.now(),
         });
       }
+
+      // Capture rate limit headers from XHR responses
+      const xhrUrl = xhr._eaUrl || '';
+      this.addEventListener('load', function () {
+        try {
+          const allHeaders = this.getAllResponseHeaders();
+          if (allHeaders && xhrUrl) {
+            captureRateLimitHeaders(allHeaders, xhrUrl);
+          }
+        } catch {
+          /* skip */
+        }
+      });
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (originalSend as any).apply(this, args);
     };
@@ -204,6 +277,19 @@ export default defineContentScript({
               totalRequests: interceptedRequests.length,
               endpoints,
             },
+            requestId: event.data.requestId || null,
+          },
+          '*'
+        );
+      }
+
+      if (event.data.action === 'getRateLimitInfo') {
+        window.postMessage(
+          {
+            channel: CHANNEL,
+            action: 'rateLimitHeaders',
+            data: rateLimitHeaders.slice(0, MAX_RATE_LIMIT_ENTRIES),
+            requestId: event.data.requestId || null,
           },
           '*'
         );
@@ -281,6 +367,7 @@ export default defineContentScript({
             channel: CHANNEL,
             action: 'windowProperties',
             data: properties,
+            requestId: event.data.requestId || null,
           },
           '*'
         );

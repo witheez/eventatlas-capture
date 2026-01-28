@@ -79,6 +79,7 @@ export const DEFAULT_SETTINGS: Settings = {
   screenshotUploadTiming: 'immediate',
   autoSwitchTab: true,
   eventListRefreshInterval: 0,
+  autoAnalyzeSites: false,
 };
 
 export const DEFAULT_FILTER_STATE: FilterState = {
@@ -101,7 +102,7 @@ let _filterState: FilterState = { ...DEFAULT_FILTER_STATE };
 let _currentView: 'bundles' | 'detail' = 'bundles';
 let _currentBundleId: string | null = null;
 let _currentPageIndex: number | null = null;
-let _activeTab: 'current' | 'event-list' = 'current';
+let _activeTab: 'current' | 'event-list' | 'site-analysis' = 'current';
 
 // Detail view state
 let _selectedImages: Set<string> = new Set();
@@ -204,11 +205,11 @@ export function setCurrentPageIndex(index: number | null): void {
   _currentPageIndex = index;
 }
 
-export function getActiveTab(): 'current' | 'event-list' {
+export function getActiveTab(): 'current' | 'event-list' | 'site-analysis' {
   return _activeTab;
 }
 
-export function setActiveTab(tab: 'current' | 'event-list'): void {
+export function setActiveTab(tab: 'current' | 'event-list' | 'site-analysis'): void {
   _activeTab = tab;
 }
 

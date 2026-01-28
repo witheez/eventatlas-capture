@@ -97,6 +97,20 @@
     </div>
 
     <div class="settings-divider"></div>
+    <div class="settings-title" style="margin-top: 16px;">Site Analysis</div>
+
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Auto-analyze sites</div>
+        <div class="setting-desc">Automatically analyze every page for anti-bot detection</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="autoAnalyzeSetting">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <div class="settings-divider"></div>
     <div class="settings-title" style="margin-top: 16px;">Event List</div>
 
     <div class="setting-row">
@@ -137,6 +151,7 @@
     <div class="tab-buttons">
       <button class="tab-btn active" data-tab="current">Current</button>
       <button class="tab-btn" data-tab="event-list">Event List</button>
+      <button class="tab-btn" data-tab="site-analysis">Site Analysis</button>
     </div>
     <div class="tab-nav-arrows" id="tabNavArrows">
       <span class="tab-nav-progress" id="tabNavProgress">1/10</span>
@@ -187,6 +202,24 @@
     </div>
   </div>
 
+  <!-- Site Analysis View -->
+  <div class="view" id="siteAnalysisView" style="display: none;">
+    <div id="siteAnalysisSection" class="site-analysis-section">
+      <div class="sa-header" id="siteAnalysisHeader">
+        <span class="sa-header-icon">&#128270;</span>
+        <span class="sa-header-title">Site Analysis</span>
+        <button class="sa-analyze-btn" id="analyzeSiteBtn" title="Analyze this website">Analyze</button>
+      </div>
+      <div id="siteAnalysisContent" class="sa-content" style="display: none;">
+        <div id="siteAnalysisLoading" class="sa-loading" style="display: none;">
+          <div class="loading-spinner-small"></div>
+          <span>Analyzing site...</span>
+        </div>
+        <div id="siteAnalysisResults"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Main View (Bundles with Accordion) -->
   <div class="view active" id="bundlesView">
     <!-- Combined page info section -->
@@ -222,22 +255,6 @@
     <div id="urlStatusContainer" class="url-status-container" style="display: none;">
       <div id="urlStatusBadge" class="url-status-badge"></div>
       <div id="urlStatusDetails" class="url-status-details"></div>
-    </div>
-
-    <!-- Site Analysis Section -->
-    <div id="siteAnalysisSection" class="site-analysis-section">
-      <div class="sa-header" id="siteAnalysisHeader">
-        <span class="sa-header-icon">&#128270;</span>
-        <span class="sa-header-title">Site Analysis</span>
-        <button class="sa-analyze-btn" id="analyzeSiteBtn" title="Analyze this website">Analyze</button>
-      </div>
-      <div id="siteAnalysisContent" class="sa-content" style="display: none;">
-        <div id="siteAnalysisLoading" class="sa-loading" style="display: none;">
-          <div class="loading-spinner-small"></div>
-          <span>Analyzing site...</span>
-        </div>
-        <div id="siteAnalysisResults"></div>
-      </div>
     </div>
 
     <!-- Quick Add to Pipeline Section -->
