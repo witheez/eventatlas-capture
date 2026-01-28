@@ -26,6 +26,7 @@ const defaultSettings: Settings = {
   eventListRefreshInterval: 30000,
   distancePresets: [],
   screenshotUploadMode: 'auto',
+  autoAnalyzeSites: false,
 };
 
 const testBundle: Bundle = {

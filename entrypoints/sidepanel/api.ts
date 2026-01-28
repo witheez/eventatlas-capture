@@ -737,6 +737,25 @@ export async function getProcessorConfigs(
 }
 
 /**
+ * Trigger a scraper run for a parent organizer link
+ */
+export async function triggerScrape(
+  settings: ApiSettings,
+  organizerLinkId: number
+): Promise<ApiResponse<{ message: string }>> {
+  if (!settings.apiUrl || !settings.apiToken) {
+    return { ok: false, status: 0, data: null, error: 'No API credentials' };
+  }
+
+  return apiRequest<{ message: string }>('/api/extension/trigger-scrape', {
+    apiUrl: settings.apiUrl,
+    apiToken: settings.apiToken,
+    method: 'POST',
+    body: { organizer_link_id: organizerLinkId },
+  });
+}
+
+/**
  * Quick import a URL to the pipeline
  */
 export async function quickImport(

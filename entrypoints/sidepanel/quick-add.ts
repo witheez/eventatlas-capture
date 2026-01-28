@@ -6,7 +6,13 @@
  * as a child of an existing organizer or as standalone.
  */
 
-import { checkParent, getProcessorConfigs, quickImport, normalizeBaseUrl } from './api';
+import {
+  checkParent,
+  getProcessorConfigs,
+  quickImport,
+  triggerScrape,
+  normalizeBaseUrl,
+} from './api';
 import type { ProcessorConfig } from './api';
 import { getSettings } from './store';
 
@@ -34,6 +40,7 @@ export interface QuickAddElements {
   inheritedProcessorName: HTMLElement | null;
   blockedParentName: HTMLElement | null;
   viewParentLink: HTMLAnchorElement | null;
+  runScraperBtn: HTMLButtonElement | null;
   processorConfigSelect: HTMLSelectElement | null;
   addAsChildBtn: HTMLButtonElement | null;
   addStandaloneBtn: HTMLButtonElement | null;
@@ -59,6 +66,7 @@ let elements: QuickAddElements = {
   inheritedProcessorName: null,
   blockedParentName: null,
   viewParentLink: null,
+  runScraperBtn: null,
   processorConfigSelect: null,
   addAsChildBtn: null,
   addStandaloneBtn: null,
@@ -218,6 +226,11 @@ async function loadProcessorConfigs(): Promise<void> {
  * Setup event listeners
  */
 function setupEventListeners(): void {
+  // Run scraper button
+  if (elements.runScraperBtn) {
+    elements.runScraperBtn.addEventListener('click', handleRunScraper);
+  }
+
   // Add as child button
   if (elements.addAsChildBtn) {
     elements.addAsChildBtn.addEventListener('click', handleAddAsChild);
@@ -235,6 +248,47 @@ function setupEventListeners(): void {
         elements.addStandaloneBtn.disabled = !elements.processorConfigSelect?.value;
       }
     });
+  }
+}
+
+/**
+ * Handle triggering the parent scraper
+ */
+async function handleRunScraper(): Promise<void> {
+  if (!currentParentId) return;
+
+  const btn = elements.runScraperBtn;
+  if (!btn) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  btn.classList.remove('success', 'error');
+
+  const settings = getSettings();
+  const result = await triggerScrape(settings, currentParentId);
+
+  if (result.ok) {
+    btn.textContent = 'Scraper Dispatched!';
+    btn.classList.add('success');
+    callbacks.showToast(result.data?.message || 'Scraper dispatched successfully', 'success');
+
+    // Revert button after 3 seconds
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = 'Run Scraper';
+      btn.classList.remove('success');
+    }, 3000);
+  } else {
+    btn.textContent = 'Failed';
+    btn.classList.add('error');
+    callbacks.showToast(result.error || 'Failed to trigger scraper', 'error');
+
+    // Revert button after 3 seconds
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = 'Run Scraper';
+      btn.classList.remove('error');
+    }, 3000);
   }
 }
 
