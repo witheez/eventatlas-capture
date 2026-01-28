@@ -49,15 +49,34 @@ npm run format           # Prettier format
 The side panel uses a **factory pattern with dependency injection** for testability:
 
 ```
-main.ts          → Orchestrates modules, handles UI events
-├── store.ts     → Centralized state (getters/setters, no local module state)
-├── api.ts       → All backend API calls via centralized apiRequest()
-├── storage.ts   → Chrome storage operations (settings, bundles)
-├── event-editor.ts → Event editing UI (tags, distances, screenshots)
-├── upload-queue.ts → Background upload queue with retry logic
-├── url-status.ts   → URL matching and status display
-└── capture.ts      → Page capture coordination
+main.ts              → Orchestrates modules, handles UI events, tab switching
+├── store.ts         → Centralized state (getters/setters, no local module state)
+├── api.ts           → All backend API calls via centralized apiRequest()
+├── storage.ts       → Chrome storage operations (settings, bundles)
+├── event-editor.ts  → Event editing UI (tags, distances, screenshots)
+├── upload-queue.ts  → Background upload queue with retry logic
+├── url-status.ts    → URL matching and status display
+├── capture.ts       → Page capture coordination
+├── quick-add.ts     → Quick add to pipeline UI (includes Run Scraper for API parents)
+├── site-analyzer.ts → Site analysis orchestration and rendering
+└── site-analyzer-types.ts → Shared types for site analysis
 ```
+
+### Site Analysis Content Scripts
+
+- **`entrypoints/site-analyzer-main.content.ts`** - MAIN world script (always-on, `document_start`):
+  - Hooks `window.fetch` and `XMLHttpRequest` to intercept network requests
+  - Captures rate limit response headers
+  - Checks window properties for framework/anti-bot signatures
+  - Communicates with ISOLATED world collector via `window.postMessage`
+
+- **`entrypoints/site-analyzer-collector.content.ts`** - ISOLATED world script (on-demand, `registration: 'runtime'`):
+  - Injected via `chrome.scripting.executeScript()` when analysis is triggered
+  - Detects anti-bot signatures (cookies, DOM, inline scripts)
+  - Detects technologies (frameworks, CMS, ecommerce)
+  - Analyzes data delivery method (server-rendered, SPA, hybrid)
+  - Detects pagination patterns, authentication indicators, cookies
+  - Uses promise-based communication with MAIN world (unique request IDs, 3s timeout)
 
 ### Key Patterns
 
@@ -72,6 +91,12 @@ main.ts          → Orchestrates modules, handles UI events
 3. **Local-first with sync**: Extension matches URLs against local cache first, then fetches fresh data by event ID from backend
 
 4. **State management**: All state lives in `store.ts` - modules import getters/setters rather than maintaining local state
+
+5. **Three-tab UI**: Side panel has Current, Event List, and Site Analysis tabs. Tab switching managed by `switchMainTab()` in `main.ts`. Active tab stored in `store.ts` as `'current' | 'event-list' | 'site-analysis'`.
+
+6. **Site analysis**: On-demand website analysis for scraping insights. The MAIN world script is always-on to capture network requests from page load. The collector is injected on-demand. Analysis auto-triggers when switching to the Site Analysis tab. All sections always render (empty state if no data). Settings include `autoAnalyzeSites` for automatic analysis on every page.
+
+7. **XSS prevention in site analysis**: All page-sourced data rendered via `innerHTML` must be escaped with the regex-based `escapeHtml()` in `site-analyzer.ts`. This includes detection names, evidence, URLs, and attribute values.
 
 ### Backend Integration
 
@@ -92,6 +117,10 @@ The extension communicates with a Laravel backend. All endpoints require Sanctum
 | GET | `/api/extension/event-types` | Get available event types |
 | GET | `/api/extension/distances` | Get predefined distances |
 | POST | `/api/extension/add-discovered-links` | Add links from extension discovery |
+| GET | `/api/extension/check-parent` | Check if URL belongs to a parent scraper |
+| GET | `/api/extension/processor-configs` | Get processor configurations |
+| POST | `/api/extension/quick-import` | Quick import a page to pipeline |
+| POST | `/api/extension/trigger-scrape` | Trigger scraping pipeline for a parent organizer link |
 
 ## Tech Stack
 
